@@ -50,15 +50,17 @@ async function runTests() {
   const fixtures = res ? (await res.json()).filter(f => f.munsell) : [];
 
   // 추가 테스트 케이스 (DB에서 직접)
+  // sRGB 기대값: colour-science munsell_colour_to_xyY → XYZ → CAT02(C→D65) → sRGB
+  // (Y = ASTM D1535 luminance(V)/100, 완전 확산 반사체 기준)
   const dbTests = [
-    { desc: 'N 5/ — 중성 회색',        munsell: 'N 5/',         sRGB: [127, 127, 127] },
-    { desc: '10YR 4/3 — 갈색토',        munsell: '10YR 4/3',     sRGB: [116, 88, 52]  },
-    { desc: '10YR 3/2 — 암갈색토',      munsell: '10YR 3/2',     sRGB: [80, 62, 40]   },
-    { desc: '7.5YR 4/4 — 갈색 (7.5YR)', munsell: '7.5YR 4/4',    sRGB: [132, 81, 50]  },
-    { desc: '5YR 4/4 — 적갈색토',       munsell: '5YR 4/4',      sRGB: [146, 72, 46]  },
-    { desc: '2.5Y 6/4 — 황갈색',        munsell: '2.5Y 6/4',     sRGB: [174, 148, 92] },
-    { desc: '5Y 5/2 — 회황색',          munsell: '5Y 5/2',       sRGB: [132, 126, 90] },
-    { desc: '10YR 6/4 — 황갈색',        munsell: '10YR 6/4',     sRGB: [178, 140, 88] },
+    { desc: 'N 5/ — 중성 회색',        munsell: 'N 5/',         sRGB: [121, 121, 121] },
+    { desc: '10YR 4/3 — 갈색토',        munsell: '10YR 4/3',     sRGB: [115, 92, 65]  },
+    { desc: '10YR 3/2 — 암갈색토',      munsell: '10YR 3/2',     sRGB: [84, 69, 53]   },
+    { desc: '7.5YR 4/4 — 갈색 (7.5YR)', munsell: '7.5YR 4/4',    sRGB: [124, 89, 58]  },
+    { desc: '5YR 4/4 — 적갈색토',       munsell: '5YR 4/4',      sRGB: [127, 87, 63]  },
+    { desc: '2.5Y 6/4 — 황갈색',        munsell: '2.5Y 6/4',     sRGB: [168, 145, 99] },
+    { desc: '5Y 5/2 — 회황색',          munsell: '5Y 5/2',       sRGB: [129, 121, 97] },
+    { desc: '10YR 6/4 — 황갈색',        munsell: '10YR 6/4',     sRGB: [172, 143, 103] },
   ];
 
   const allTests = [...dbTests, ...fixtures.map(f => ({

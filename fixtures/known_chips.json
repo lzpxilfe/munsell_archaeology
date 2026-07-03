@@ -1,15 +1,17 @@
 [
   {
     "_comment": "검증 케이스 — Munsell Renotation (Illuminant C) 기준",
-    "_source": "Newhall, Nickerson & Judd (1943), colour-science/colour",
-    "_pipeline": "sRGB[D65] → linearRGB → XYZ[D65] → CAT02 → XYZ[C] → xyY[C] → Munsell"
+    "_source": "Newhall, Nickerson & Judd (1943), colour-science/colour 0.4.x로 생성",
+    "_pipeline": "sRGB[D65] → linearRGB → XYZ[D65] → CAT02 → XYZ[C] → xyY[C] → Munsell",
+    "_y_scale": "Y = ASTM D1535 luminance(V)/100 (완전 확산 반사체 기준, V=10 → Y=1.0)",
+    "_generation": "sRGB_D65_expected = munsell_colour_to_xyY() → xyY_to_XYZ() → XYZ_to_sRGB(illuminant=C, CAT02)"
   },
   {
     "id": "neutral_gray",
-    "desc": "N 5/ — 중성 회색 (무채색 기준, Illuminant C에서 x=0.3101, y=0.3163)",
+    "desc": "N 5/ — 중성 회색 (무채색 기준, Illuminant C에서 x=0.3101, y=0.3162)",
     "munsell": "N 5/",
-    "xyY_C": { "x": 0.3101, "y": 0.3163, "Y": 0.1976 },
-    "sRGB_D65_expected": [127, 127, 127],
+    "xyY_C": { "x": 0.3101, "y": 0.3162, "Y": 0.1927 },
+    "sRGB_D65_expected": [121, 121, 121],
     "tolerance_dE": 1.0,
     "note": "무채색 변환의 기준 케이스. 통과하지 못하면 파이프라인 오류."
   },
@@ -17,8 +19,8 @@
     "id": "brown_10YR_4_3",
     "desc": "10YR 4/3 — 갈색 (토양 가장 흔한 색)",
     "munsell": "10YR 4/3",
-    "xyY_C": { "x": 0.3858, "y": 0.3829, "Y": 0.1600 },
-    "sRGB_D65_expected": [116, 88, 52],
+    "xyY_C": { "x": 0.3924, "y": 0.3769, "Y": 0.1170 },
+    "sRGB_D65_expected": [115, 92, 65],
     "tolerance_dE": 2.15,
     "note": "AQP 기준 dE2000 < 2.15 = 등가. 실제 Renotation 데이터에는 chroma=3이 없으므로 보간 필요."
   },
@@ -26,59 +28,59 @@
     "id": "dark_brown_10YR_3_2",
     "desc": "10YR 3/2 — 암갈색 (A층, 부식토)",
     "munsell": "10YR 3/2",
-    "xyY_C": { "x": 0.3698, "y": 0.3774, "Y": 0.0900 },
-    "sRGB_D65_expected": [80, 62, 40],
+    "xyY_C": { "x": 0.3747, "y": 0.3630, "Y": 0.0639 },
+    "sRGB_D65_expected": [84, 69, 53],
     "tolerance_dE": 2.15
   },
   {
     "id": "yellowish_brown_10YR_6_4",
     "desc": "10YR 6/4 — 황갈색 (C층, 풍화토)",
     "munsell": "10YR 6/4",
-    "xyY_C": { "x": 0.4026, "y": 0.3861, "Y": 0.3600 },
-    "sRGB_D65_expected": [178, 140, 88],
+    "xyY_C": { "x": 0.3861, "y": 0.3767, "Y": 0.2930 },
+    "sRGB_D65_expected": [172, 143, 103],
     "tolerance_dE": 2.15
   },
   {
     "id": "reddish_brown_5YR_4_4",
     "desc": "5YR 4/4 — 적갈색 (철산화층, 열 받은 층위)",
     "munsell": "5YR 4/4",
-    "xyY_C": { "x": 0.4387, "y": 0.3577, "Y": 0.1600 },
-    "sRGB_D65_expected": [146, 72, 46],
+    "xyY_C": { "x": 0.4187, "y": 0.3679, "Y": 0.1170 },
+    "sRGB_D65_expected": [127, 87, 63],
     "tolerance_dE": 2.15
   },
   {
     "id": "olive_yellow_2_5Y_6_4",
     "desc": "2.5Y 6/4 — 황갈색 (기반암 풍화층)",
     "munsell": "2.5Y 6/4",
-    "xyY_C": { "x": 0.3803, "y": 0.3997, "Y": 0.3600 },
-    "sRGB_D65_expected": [174, 148, 92],
+    "xyY_C": { "x": 0.3840, "y": 0.3867, "Y": 0.2930 },
+    "sRGB_D65_expected": [168, 145, 99],
     "tolerance_dE": 2.15
   },
   {
     "id": "black_10YR_2_1",
     "desc": "10YR 2/1 — 흑색 (최상부 부식층)",
     "munsell": "10YR 2/1",
-    "xyY_C": { "x": 0.3498, "y": 0.3681, "Y": 0.0400 },
-    "sRGB_D65_expected": [47, 40, 32],
+    "xyY_C": { "x": 0.3486, "y": 0.3425, "Y": 0.0305 },
+    "sRGB_D65_expected": [55, 48, 41],
     "tolerance_dE": 2.15
   },
   {
-    "_comment": "조명 보정 검증 케이스",
+    "_comment": "조명 보정 검증 케이스 — raw 값은 corrected 값을 Bradford로 해당 색온도에 역적응하여 생성",
     "id": "lighting_correction_shade",
     "desc": "그늘(9000K) 보정 효과 검증",
     "scenario": "그늘에서 촬영한 10YR 4/3 갈색토",
-    "raw_sRGB_under_shade_9000K": [105, 84, 60],
-    "corrected_sRGB_D65_expected": [116, 88, 52],
+    "raw_sRGB_under_shade_9000K": [111, 92, 77],
+    "corrected_sRGB_D65_expected": [115, 92, 65],
     "munsell_expected": "10YR 4/3",
-    "note": "보정 없이 변환 시 10YR 3/2 또는 더 어두운 색으로 오판될 수 있음"
+    "note": "보정 없이 변환 시 더 푸르스름하고 탁한 색(저채도)으로 오판될 수 있음"
   },
   {
     "id": "lighting_correction_sunny",
     "desc": "직사광선(5500K) 보정 효과 검증",
     "scenario": "직사광선 아래 촬영한 10YR 4/3 갈색토",
-    "raw_sRGB_under_sun_5500K": [128, 96, 55],
-    "corrected_sRGB_D65_expected": [116, 88, 52],
+    "raw_sRGB_under_sun_5500K": [121, 91, 60],
+    "corrected_sRGB_D65_expected": [115, 92, 65],
     "munsell_expected": "10YR 4/3",
-    "note": "햇빛 아래에서는 실제보다 더 노랗고 밝게 찍혀 10YR 5/4로 오판 가능"
+    "note": "햇빛 아래에서는 실제보다 더 노랗고 따뜻하게 찍혀 채도가 높은 칩으로 오판 가능"
   }
 ]
