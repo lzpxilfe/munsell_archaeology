@@ -46,7 +46,7 @@ class Markers {
   add(result, wb) {
     let kind, geometry;
     if (result.region) {
-      kind = result.region.kind;                    // 'rect' | 'lasso'
+      kind = result.region.kind;                    // 'rect' | 'lasso' | 'polyline'
       geometry = result.region.geometry;
     } else if (result.point) {
       kind = 'point';
@@ -114,7 +114,7 @@ class Markers {
       } else if (m.kind === 'rect') {
         const g = m.geometry;
         avg = RegionStats.averageRect(imageData, g.x0, g.y0, g.x1, g.y1);
-      } else if (m.kind === 'lasso') {
+      } else if (m.geometry.pts) {   // 'lasso' | 'polyline' — 폴리곤 좌표 배열은 동일 구조
         avg = RegionStats.averagePolygon(imageData, m.geometry.pts);
       }
       if (!avg) continue;
@@ -154,7 +154,7 @@ class Markers {
       return { ix: (m.geometry.x0 + m.geometry.x1) / 2,
                iy: Math.min(m.geometry.y0, m.geometry.y1) };
     }
-    // lasso: 첫 점
+    // lasso / polyline: 첫 점
     return { ix: m.geometry.pts[0].ix, iy: m.geometry.pts[0].iy };
   }
 
@@ -169,7 +169,7 @@ class Markers {
         const p0 = view.imageToCanvas(Math.min(g.x0, g.x1), Math.min(g.y0, g.y1));
         const p1 = view.imageToCanvas(Math.max(g.x0, g.x1), Math.max(g.y0, g.y1));
         ctx.strokeRect(p0.cx, p0.cy, p1.cx - p0.cx, p1.cy - p0.cy);
-      } else if (m.kind === 'lasso') {
+      } else if (m.geometry.pts) {   // 'lasso' | 'polyline'
         const pts = m.geometry.pts;
         ctx.beginPath();
         const p0 = view.imageToCanvas(pts[0].ix, pts[0].iy);
@@ -186,7 +186,7 @@ class Markers {
       // 라벨 배지
       const a = this._anchor(m);
       const p = view.imageToCanvas(a.ix, a.iy);
-      const R = 9;
+      const R = 11;
       ctx.save();
       // 점 마커는 위치 표시 십자
       if (m.kind === 'point') {
@@ -206,7 +206,7 @@ class Markers {
       ctx.lineWidth = 1.5;
       ctx.stroke();
       ctx.fillStyle = this.selected.has(m.id) ? '#1a1a1a' : '#c49a4e';
-      ctx.font = 'bold 10px sans-serif';
+      ctx.font = 'bold 12px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(m.label, p.cx, by + 0.5);

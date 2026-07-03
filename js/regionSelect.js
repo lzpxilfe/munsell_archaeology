@@ -204,10 +204,12 @@ const RegionStats = (() => {
 
 
 /**
- * 영역 선택 도구 (사각형 드래그 / 올가미 자유곡선)
+ * 영역 선택 도구 (사각형 드래그 / 올가미 자유곡선 / 폴리라인 정점 클릭)
  * ColorPicker의 registerTool 확장점에 끼워진다.
  */
 class RegionSelect {
+  static POLY_CLOSE_PX = 10;   // 시작점 근접 판정 반경 (캔버스 픽셀, 줌 무관하게 일정)
+
   /**
    * @param {ColorPicker} picker
    * @param {(avg: {r,g,b,stats}, region: {kind, geometry}) => void} onResult
@@ -219,22 +221,27 @@ class RegionSelect {
 
     this._drag = null;        // 사각형 드래그 중 {x0,y0,x1,y1} (이미지 좌표)
     this._lasso = null;       // 올가미 진행 중 [{ix,iy}, ...]
+    this._poly = null;        // 폴리라인 진행 중 [{ix,iy}, ...]
+    this._polyPreview = null; // 폴리라인 고무줄 선의 현재 커서 위치
     this.lastRegion = null;   // 확정된 영역 {kind, geometry} — 오버레이 유지
 
     picker.registerTool('rect', {
       cursor: 'crosshair',
+      statusText: '드래그해서 사각형 영역 지정 · Esc: 취소',
       down: (pos) => { this._drag = { x0: pos.ix, y0: pos.iy, x1: pos.ix, y1: pos.iy }; },
       move: (pos) => {
         if (this._drag) { this._drag.x1 = pos.ix; this._drag.y1 = pos.iy; }
         this.view.render();
       },
       up: () => this._finishRect(),
+      cancel: () => { this._drag = null; },
       draw: (ctx, view) => this._draw(ctx, view),
       always: true,   // 확정된 영역은 도구와 무관하게 계속 표시
     });
 
     picker.registerTool('lasso', {
       cursor: 'crosshair',
+      statusText: '드래그해서 자유곡선으로 영역 지정 · Esc: 취소',
       down: (pos) => { this._lasso = [{ ix: pos.ix, iy: pos.iy }]; },
       move: (pos) => {
         if (this._lasso) {
@@ -245,6 +252,16 @@ class RegionSelect {
         this.view.render();
       },
       up: () => this._finishLasso(),
+      cancel: () => { this._lasso = null; },
+    });
+
+    picker.registerTool('polyline', {
+      cursor: 'crosshair',
+      statusText: () => this._polyStatusText(),
+      up: (pos) => this._onPolyClick(pos),
+      move: (pos) => { this._polyPreview = { ix: pos.ix, iy: pos.iy }; this.view.render(); },
+      dblclick: () => this._onPolyDblClick(),
+      cancel: () => { this._poly = null; this._polyPreview = null; },
     });
   }
 
@@ -252,6 +269,8 @@ class RegionSelect {
     this.lastRegion = null;
     this._drag = null;
     this._lasso = null;
+    this._poly = null;
+    this._polyPreview = null;
     this.view.render();
   }
 
@@ -277,6 +296,56 @@ class RegionSelect {
     const avg = RegionStats.averagePolygon(this.view.correctedImageData, pts);
     if (avg) {
       this.lastRegion = { kind: 'lasso', geometry: { pts } };
+      this.onResult(avg, this.lastRegion);
+    }
+    this.view.render();
+  }
+
+  // ─── 폴리라인 (클릭으로 정점 추가, CAD 방식) ─────────────────────
+
+  _polyStatusText() {
+    if (!this._poly) return '클릭: 정점 시작 · Esc: 취소';
+    const n = this._poly.length;
+    return n < 3
+      ? `정점 ${n}개 — 계속 클릭 (최소 3개 필요) · Esc: 취소`
+      : `정점 ${n}개 — 시작점 클릭 또는 더블클릭으로 완료 · Esc: 취소`;
+  }
+
+  _onPolyClick(pos) {
+    if (!this._poly) {
+      this._poly = [{ ix: pos.ix, iy: pos.iy }];
+      return;
+    }
+    // 시작점 근접 클릭 → 닫기 (캔버스 픽셀 기준 판정 — 줌 배율과 무관하게 일정한 UX)
+    if (this._poly.length >= 3) {
+      const p0 = this.view.imageToCanvas(this._poly[0].ix, this._poly[0].iy);
+      if (Math.hypot(pos.cx - p0.cx, pos.cy - p0.cy) <= RegionSelect.POLY_CLOSE_PX) {
+        this._finishPolyline(this._poly);
+        return;
+      }
+    }
+    this._poly.push({ ix: pos.ix, iy: pos.iy });
+  }
+
+  /**
+   * 더블클릭으로 완료. 더블클릭의 두 번째 클릭이 이미 up 핸들러에서
+   * (거의 같은 위치의) 중복 정점을 하나 추가해 두었으므로, 그 중복분을
+   * 제거한 뒤 나머지 정점으로 폴리곤을 닫는다.
+   */
+  _onPolyDblClick() {
+    if (!this._poly || this._poly.length < 4) return;   // 실질 정점 3개 미만 → 아직 무시
+    this._poly.pop();
+    this._finishPolyline(this._poly);
+  }
+
+  _finishPolyline(pts) {
+    this._poly = null;
+    this._polyPreview = null;
+    if (!pts || pts.length < 3) { this.view.render(); return; }
+
+    const avg = RegionStats.averagePolygon(this.view.correctedImageData, pts);
+    if (avg) {
+      this.lastRegion = { kind: 'polyline', geometry: { pts } };
       this.onResult(avg, this.lastRegion);
     }
     this.view.render();
@@ -318,13 +387,57 @@ class RegionSelect {
       ctx.restore();
     };
 
+    const drawVertices = (pts) => {
+      ctx.save();
+      ctx.fillStyle = 'rgba(255,255,255,0.95)';
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+      ctx.lineWidth = 1;
+      for (const p of pts) {
+        const c = view.imageToCanvas(p.ix, p.iy);
+        ctx.beginPath();
+        ctx.arc(c.cx, c.cy, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
+    };
+
     // 진행 중
     if (this._drag) drawRect(this._drag.x0, this._drag.y0, this._drag.x1, this._drag.y1, false);
     if (this._lasso) drawPoly(this._lasso, false, false);
+    if (this._poly) {
+      drawPoly(this._poly, false, false);
+      drawVertices(this._poly);
+      // 고무줄: 마지막 정점 → 현재 커서
+      if (this._polyPreview) {
+        const p0 = view.imageToCanvas(this._poly[this._poly.length - 1].ix, this._poly[this._poly.length - 1].iy);
+        const p1 = view.imageToCanvas(this._polyPreview.ix, this._polyPreview.iy);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+        ctx.setLineDash([3, 3]);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(p0.cx, p0.cy);
+        ctx.lineTo(p1.cx, p1.cy);
+        ctx.stroke();
+        ctx.restore();
+      }
+      // 닫기 판정 반경을 시작점에 살짝 표시 (3정점 이상일 때)
+      if (this._poly.length >= 3) {
+        const p0 = view.imageToCanvas(this._poly[0].ix, this._poly[0].iy);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(196,154,78,0.7)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(p0.cx, p0.cy, RegionSelect.POLY_CLOSE_PX, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
 
     // 확정된 영역
     const r = this.lastRegion;
     if (r?.kind === 'rect') drawRect(r.geometry.x0, r.geometry.y0, r.geometry.x1, r.geometry.y1, true);
-    if (r?.kind === 'lasso') drawPoly(r.geometry.pts, true, true);
+    if (r?.kind === 'lasso' || r?.kind === 'polyline') drawPoly(r.geometry.pts, true, true);
   }
 }

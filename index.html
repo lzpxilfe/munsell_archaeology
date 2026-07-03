@@ -80,6 +80,7 @@
         <button class="tool-chip active" data-tool="pick"  title="스포이드 — 클릭 지점의 색 채취">💧 스포이드</button>
         <button class="tool-chip" data-tool="rect"  title="사각형 영역을 드래그 — 빛/그림자 제외 평균색">▭ 사각형</button>
         <button class="tool-chip" data-tool="lasso" title="자유곡선으로 영역 지정 — 빛/그림자 제외 평균색">✎ 올가미</button>
+        <button class="tool-chip" data-tool="polyline" title="정점을 클릭으로 찍어 정밀하게 경계 지정 (CAD 폴리라인 방식) — 시작점 클릭/더블클릭으로 완료, Esc로 취소">📐 폴리라인</button>
         <button class="tool-chip" data-tool="graycard" title="사진 속 회색 카드/무채색 물체를 클릭 → 조명 자동 보정">⬜ 그레이카드</button>
         <button class="tool-chip" data-tool="pan"   title="이미지 이동 (Space+드래그, 휠버튼 드래그도 가능)">✋ 이동</button>
 
@@ -282,6 +283,7 @@
     <div class="layers-toolbar">
       <button id="sort-asc"  class="btn btn-sm btn-ghost" title="번호 오름차순">↑ 오름차순</button>
       <button id="sort-desc" class="btn btn-sm btn-ghost" title="번호 내림차순">↓ 내림차순</button>
+      <button id="layer-boundaries-toggle" class="btn btn-sm btn-ghost active" title="경계 표시 끄기">🗺 경계 표시</button>
       <div style="margin-left:auto;display:flex;gap:5px">
         <button id="export-csv"  class="btn btn-sm" title="CSV 내보내기">📄 CSV</button>
         <button id="export-json" class="btn btn-sm" title="JSON 내보내기">💾 JSON</button>
@@ -366,6 +368,7 @@
 <script src="js/colorPicker.js"></script>
 <script src="js/regionSelect.js"></script>
 <script src="js/markers.js"></script>
+<script src="js/layerOverlay.js"></script>
 <script src="js/app.js"></script>
 
 <!-- Sync munsell-code-small with munsell-code -->

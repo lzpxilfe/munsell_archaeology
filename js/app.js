@@ -12,6 +12,7 @@ const state = {
   wbWhitePoint: null,      // 그레이카드로 추정한 광원 화이트포인트
   wbCCT: null,             // 추정 CCT (표시/기록용)
   layers: [],
+  showLayerBoundaries: true,  // 층위 경계 오버레이 표시 여부
   theme: localStorage.getItem('munsell-theme') || 'dark',
 };
 
@@ -47,6 +48,7 @@ const converter = new MunsellConvert(chipsDB);
 let picker = null;
 let regionSelect = null;
 let markers = null;
+let layerOverlay = null;
 
 /** 층위/마커 기록용 현재 WB 스냅샷 */
 function currentWbSnapshot() {
@@ -123,6 +125,8 @@ function setupImageUpload() {
   picker = new ColorPicker(canvas, magnifier, magCanvas, handleColorPick);
   regionSelect = new RegionSelect(picker, handleRegionResult);
   markers = new Markers(picker, { onChange: renderMarkersPanel });
+  layerOverlay = new LayerOverlay(picker, () => state.layers);
+  layerOverlay.visible = state.showLayerBoundaries;
 
   // 그레이카드 도구: 원본(미보정)에서 9×9 평균 → 광원 추정 → 전체 보정
   picker.registerTool('graycard', {
@@ -182,6 +186,15 @@ function resetPerImageState() {
   const addBtn = $('#add-layer-btn');
   if (addBtn) addBtn.disabled = true;
   renderSampleStats(null);
+
+  // 층위 기록 자체는 유지하되, 이전 사진에 고정된 경계는 새 사진에 의미가
+  // 없으므로 해제한다 (기록이 새 사진 것처럼 잘못 표시되는 걸 방지)
+  const hadBoundaries = state.layers.some(l => l.region);
+  if (hadBoundaries) {
+    state.layers.forEach(l => { l.region = null; });
+    toast('이전 사진의 층위 경계 표시가 해제되었습니다 (기록 자체는 유지됨)', 'info');
+  }
+  picker?.render();
 }
 
 function loadImageFile(file) {
@@ -600,7 +613,7 @@ function renderMarkersPanel() {
   section.style.display = '';
   list.innerHTML = '';
 
-  const kindIcon = { point: '📍', rect: '▭', lasso: '✎' };
+  const kindIcon = { point: '📍', rect: '▭', lasso: '✎', polyline: '📐' };
   markers.items.forEach(m => {
     const row = document.createElement('div');
     row.className = 'marker-row' + (markers.selected.has(m.id) ? ' selected' : '');
@@ -616,7 +629,8 @@ function renderMarkersPanel() {
       <button class="btn btn-icon btn-danger btn-sm" data-act="del" title="마커 삭제">✕</button>
     `;
     row.querySelector('input').addEventListener('change', () => markers.toggleSelect(m.id));
-    row.querySelector('[data-act="layer"]').addEventListener('click', () => addLayer(m.result, m.wb));
+    row.querySelector('[data-act="layer"]').addEventListener('click', () =>
+      addLayer(m.result, m.wb, { kind: m.kind, geometry: m.geometry }));
     row.querySelector('[data-act="del"]').addEventListener('click', () => markers.remove(m.id));
     list.appendChild(row);
   });
@@ -652,20 +666,35 @@ function setupLayerUI() {
       state.layers = [];
       renderLayerList();
       updateComparisonStrip();
+      picker?.render();
     }
+  });
+
+  $('#layer-boundaries-toggle')?.addEventListener('click', (e) => {
+    state.showLayerBoundaries = !state.showLayerBoundaries;
+    layerOverlay?.setVisible(state.showLayerBoundaries);
+    e.currentTarget.classList.toggle('active', state.showLayerBoundaries);
+    e.currentTarget.title = state.showLayerBoundaries ? '경계 표시 끄기' : '경계 표시 켜기';
   });
 }
 
 /**
  * 층위 기록 추가
- * @param {object} res  분석 결과 (기본: 현재 결과) — 마커 승격 시 마커의 result
- * @param {object} wb   WB 스냅샷 (기본: 현재 상태) — 마커 승격 시 채취 당시 값
+ * @param {object} res      분석 결과 (기본: 현재 결과) — 마커 승격 시 마커의 result
+ * @param {object} wb       WB 스냅샷 (기본: 현재 상태) — 마커 승격 시 채취 당시 값
+ * @param {object} region   {kind, geometry} — 사진 위 경계 고정용. 기본은
+ *                          res.region(영역 선택) 또는 res.point(점 채취).
+ *                          마커 승격 시 마커 자신의 geometry를 명시적으로 넘겨야 함
+ *                          (마커의 result에는 geometry가 없으므로).
  */
-function addLayer(res = state.currentResult, wb = null) {
+function addLayer(res = state.currentResult, wb = null, region = undefined) {
   if (!res) return;
   // WB는 채취 시점 스냅샷 우선 — 기록 버튼을 누른 시점의 상태가 아니라
   // 그 색이 실제로 계산된 조건을 기록해야 재현 가능하다.
   wb = wb || res.wb || currentWbSnapshot();
+  if (region === undefined) {
+    region = res.region || (res.point ? { kind: 'point', geometry: res.point } : null);
+  }
 
   const numInput  = $('#layer-num');
   const descInput = $('#layer-desc');
@@ -681,6 +710,7 @@ function addLayer(res = state.currentResult, wb = null) {
   layer.depth_top = depthTopInput?.value ? parseFloat(depthTopInput.value) : null;
   layer.depth_bottom = depthBottomInput?.value ? parseFloat(depthBottomInput.value) : null;
   layer.notes = memoInput?.value || '';
+  layer.region = region || null;   // 사진 위 경계 고정 (층위 번호 배지로 상시 표시)
 
   // Matrix color attributes
   layer.matrix.code = res.code;
@@ -708,7 +738,9 @@ function addLayer(res = state.currentResult, wb = null) {
 
   renderLayerList();
   updateComparisonStrip();
-  toast(`층위 ${layer.number} 추가됨: ${layer.matrix.code}`, 'success');
+  picker?.render();
+  toast(`층위 ${layer.number} 추가됨: ${layer.matrix.code}`
+    + (layer.region ? ' (경계 고정됨)' : ''), 'success');
 
   // Auto-increment layer number
   const nextNum = parseInt(layer.number || 0) + 1;
@@ -719,6 +751,7 @@ function removeLayer(id) {
   state.layers = state.layers.filter(l => l.id !== id);
   renderLayerList();
   updateComparisonStrip();
+  picker?.render();
 }
 
 function sortLayers(dir) {
@@ -763,7 +796,7 @@ function renderLayerList() {
       <div class="layer-swatch" style="background:${layer.matrix.hex}"></div>
       <div class="layer-info">
         <div style="display:flex; justify-content:space-between; align-items:baseline">
-          <div class="layer-number">층위 ${layer.number}</div>
+          <div class="layer-number">층위 ${layer.number}${layer.region ? ' 📐' : ''}</div>
           ${depthStr}
         </div>
         <div class="layer-munsell">${layer.matrix.code} <span style="font-size:0.7rem; color:var(--text-muted)">(${condLabel})</span></div>

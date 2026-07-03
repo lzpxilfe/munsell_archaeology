@@ -33,6 +33,10 @@ const FieldRecord = (() => {
       depth_top:   null,   // 상면 깊이 (cm)
       depth_bottom: null,  // 하면 깊이 (cm)
 
+      // 사진 위 경계 (영역 선택으로 채취했을 때만) — { kind: 'point'|'rect'|'lasso'|'polyline', geometry }
+      // 이미지 좌표. 다른 사진을 로드하면 무효화되어 null로 해제됨 (app.js resetPerImageState)
+      region: null,
+
       // 먼셀 색 — Matrix (기질토)
       matrix: {
         code:      '',     // 먼셀 코드  예: "10YR 4/3"

@@ -63,14 +63,17 @@ class ColorPicker {
   setTool(name) {
     this.tool = name;
     this._applyCursor();
+    this._updateStatus();
   }
 
   /**
    * 외부 도구 등록
    * @param {string} name
-   * @param {{ down?, move?, up?, draw?, cursor? }} handler
-   *   down/move/up: (pos, e) => void — pos = { cx, cy, ix, iy }
+   * @param {{ down?, move?, up?, dblclick?, cancel?, draw?, cursor?, statusText? }} handler
+   *   down/move/up/dblclick: (pos, e) => void — pos = { cx, cy, ix, iy }
+   *   cancel: () => void — Escape 키로 진행 중인 동작 취소
    *   draw: (ctx, view) => void — 매 렌더 후 오버레이
+   *   statusText: string | () => string — 상태바에 표시할 안내 문구 (없으면 줌 안내로 폴백)
    */
   registerTool(name, handler) {
     this._tools[name] = handler;
@@ -113,6 +116,7 @@ class ColorPicker {
     c.addEventListener('mouseleave', () => this._onLeave());
     c.addEventListener('mousedown',  e => this._onDown(e));
     window.addEventListener('mouseup', e => this._onUp(e));
+    c.addEventListener('dblclick',   e => this._onDblClick(e));
     c.addEventListener('wheel',      e => this._onWheel(e), { passive: false });
     c.addEventListener('touchstart', e => this._onTouch(e), { passive: false });
     c.addEventListener('contextmenu', e => e.preventDefault());
@@ -122,6 +126,14 @@ class ColorPicker {
         this._spaceDown = true;
         this._applyCursor();
         e.preventDefault();
+      }
+      if (e.code === 'Escape' && !this._isTyping(e)) {
+        const handler = this._tools[this.tool];
+        if (handler?.cancel) {
+          handler.cancel();
+          this.view.render();
+          this._updateStatus();
+        }
       }
     });
     window.addEventListener('keyup', e => {
@@ -166,7 +178,7 @@ class ColorPicker {
     }
 
     const handler = this._tools[this.tool];
-    if (handler?.down) { handler.down(pos, e); return; }
+    if (handler?.down) { handler.down(pos, e); this._updateStatus(); return; }
   }
 
   _onMove(e) {
@@ -183,6 +195,7 @@ class ColorPicker {
     const handler = this._tools[this.tool];
     if (handler?.move) {
       handler.move(pos, e);
+      this._updateStatus();
       return;
     }
 
@@ -208,6 +221,7 @@ class ColorPicker {
     if (handler?.up) {
       // mouseup은 window에서 오므로 캔버스 좌표로 재계산
       handler.up(this._pos(e), e);
+      this._updateStatus();
       return;
     }
 
@@ -220,6 +234,15 @@ class ColorPicker {
         this.onPick({ ...color, point: { ix: pos.ix, iy: pos.iy } });
         this._showPickIndicator(pos.cx, pos.cy);
       }
+    }
+  }
+
+  _onDblClick(e) {
+    if (!this.view.hasImage) return;
+    const handler = this._tools[this.tool];
+    if (handler?.dblclick) {
+      handler.dblclick(this._pos(e), e);
+      this._updateStatus();
     }
   }
 
@@ -328,6 +351,11 @@ class ColorPicker {
   _updateStatus() {
     const el = document.getElementById('canvas-status');
     if (!el) return;
+    const handler = this._tools[this.tool];
+    if (handler?.statusText) {
+      el.textContent = typeof handler.statusText === 'function' ? handler.statusText() : handler.statusText;
+      return;
+    }
     const z = Math.round(this.view.zoomFactor * 100);
     el.textContent = z > 100
       ? `줌 ${z}% — Space+드래그로 이동, 휠로 줌`

@@ -139,14 +139,62 @@ def run(debug=False, smoke=False):
             out.mutualDE = mut ? Math.round(mut.dE * 100) / 100 : null;
             out.mutualEquiv = mut ? mut.equivalent : null;
             const layersBefore = state.layers.length;
-            addLayer(m1.result, m1.wb);
+            // 마커 승격: 실제 UI 흐름(층위↑ 버튼)과 동일하게 마커의 geometry를 명시 전달
+            addLayer(m1.result, m1.wb, { kind: m1.kind, geometry: m1.geometry });
             out.layerAdded = state.layers.length === layersBefore + 1;
             out.layerK = state.layers[state.layers.length - 1].matrix.lightingK;
+            out.markerLayerRegionSaved = state.layers[state.layers.length - 1].region?.kind === m1.kind;
             setLighting(3200);
             markers.recomputeAll((r, g, b) => converter.analyze(r, g, b), currentWbSnapshot());
             out.recomputedCode = markers.items[0].result.code;
             setLighting(6504);
             out.csvRows = FieldRecord.toCSVRows(state.layers).split('\\n').length;
+
+            // ── 폴리라인 도구: 클릭으로 정점 찍고 시작점 근접 클릭으로 닫기 ──
+            picker.setTool('polyline');
+            const toImg = (ix, iy) => {
+              const c = picker.view.imageToCanvas(ix, iy);
+              return { ix, iy, cx: c.cx, cy: c.cy };
+            };
+            regionSelect._onPolyClick(toImg(20, 20));
+            regionSelect._onPolyClick(toImg(120, 25));
+            regionSelect._onPolyClick(toImg(110, 70));
+            regionSelect._onPolyClick(toImg(25, 65));
+            regionSelect._onPolyClick(toImg(20, 20));   // 시작점 근접 → 닫힘
+            out.polylineCode = state.currentResult?.code;
+            out.polylineRegionKind = state.currentResult?.region?.kind;
+
+            // Esc 취소
+            regionSelect._onPolyClick(toImg(20, 20));
+            regionSelect._onPolyClick(toImg(50, 50));
+            regionSelect._onPolyClick(toImg(60, 80));
+            out.polyBeforeCancel = regionSelect._poly?.length;
+            window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape' }));
+            out.polyAfterCancel = regionSelect._poly;
+
+            // 더블클릭 완료 (마지막 중복 정점 제거 후 닫힘)
+            regionSelect._onPolyClick(toImg(30, 30));
+            regionSelect._onPolyClick(toImg(90, 35));
+            regionSelect._onPolyClick(toImg(80, 75));
+            regionSelect._onPolyClick(toImg(81, 76));   // 더블클릭 두 번째 클릭(근접 중복)
+            regionSelect._onPolyDblClick();
+            out.dblclickRegionKind = state.currentResult?.region?.kind;
+            picker.setTool('pick');
+
+            // ── 층위 경계 고정: 채취 → 층위 추가 → region 저장/오버레이 확인 ──
+            handleRegionResult(
+              RegionStats.averageRect(picker.view.correctedImageData, 10, 10, 150, 80),
+              { kind: 'rect', geometry: { x0: 10, y0: 10, x1: 150, y1: 80 } });
+            addLayer();   // 기본 인자 — state.currentResult.region을 자동으로 가져와야 함
+            out.layerRegionSaved = state.layers[state.layers.length - 1].region?.kind === 'rect';
+            out.layerOverlayExists = layerOverlay instanceof LayerOverlay;
+
+            // 새 이미지 로드 시 기존 층위의 경계가 해제되는지 (기록 자체는 유지)
+            const layersBeforeReset = state.layers.length;
+            const hadRegions = state.layers.some(l => l.region);
+            resetPerImageState();
+            out.regionsClearedOnReset = hadRegions && state.layers.every(l => !l.region);
+            out.layersKeptOnReset = state.layers.length === layersBeforeReset;
 
             // 줌/팬
             picker.view.zoomAt(100, 50, 2);
