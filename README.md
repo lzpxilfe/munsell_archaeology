@@ -166,71 +166,76 @@ munsell_archaeology/
 
 ## 🔧 다른 프로젝트에서 참조하기
 
-이 레포지토리의 핵심 모듈(`colorTemp.js`, `munsellConverter.js`)만 가져다 쓸 수 있습니다.
+이 레포지토리의 핵심 모듈(`illuminant.js`, `chromAdapt.js`, `chipDatabase.js`, `nearestChip.js`,
+`munsellConvert.js`, `fieldRecord.js` — 전부 브라우저 API에 의존하지 않는 순수 계산 모듈)만
+가져다 쓸 수 있습니다.
 
 ### 기본 사용 예시
 
 ```javascript
-// 두 파일을 script 태그로 포함하거나 import
+// script 태그로 포함하거나 import (illuminant → chromAdapt → nearestChip →
+// chipDatabase → munsellConvert 순서로 로드해야 함, index.html 참고)
 
-const corrector = new ColorTemperatureCorrector();
-const converter = new MunsellConverter();
+const converter = new MunsellConvert(ChipDatabase.build());
 
 // 1. 현장 조명 보정 (그늘 9000K → D65)
-const { r, g, b } = corrector.correctPixel(rawR, rawG, rawB, 9000);
+const { r, g, b } = ChromAdapt.correctPixelForField(rawR, rawG, rawB, 9000);
 
 // 2. 먼셀 변환
 const result = converter.analyze(r, g, b);
 
-console.log(result.code);        // "10YR 4/3"
-console.log(result.hue);         // "10YR"
-console.log(result.value);       // 4
-console.log(result.chroma);      // 3
-console.log(result.korName);     // "갈색"
-console.log(result.soilClass);   // { label: "갈색토", en: "Brown Soil", class: "brown" }
-console.log(result.deltaE);      // 1.8  (ΔE2000 — 낮을수록 정확)
-console.log(result.accuracy);    // { level: "close", label: "근접", cls: "fair" }
-console.log(result.candidates);  // Top-5 후보 칩 배열
-console.log(result.chipHex);     // "#7e6238"  (가장 가까운 칩의 HEX)
+console.log(result.code);         // "10YR 4/3"       (토색첩 표기로 반올림)
+console.log(result.codePrecise);  // "9.8YR 4.1/3.2"   (munsell.js 연속값, 폴백 시 null)
+console.log(result.hue);          // "10YR"
+console.log(result.value);        // 4
+console.log(result.chroma);       // 3
+console.log(result.korName);      // "갈색"
+console.log(result.soilClass);    // { label: "갈색토", en: "Brown Soil", class: "brown" }
+console.log(result.deltaE);       // 0.3   (ΔE2000 — 낮을수록 정확)
+console.log(result.accuracy);     // { level: "perfect", label: "일치", cls: "perfect" }
+console.log(result.candidates);   // Top-5 후보 칩 배열
+console.log(result.chipHex);      // "#745834"  (가장 가까운 칩의 HEX)
 ```
 
 ### API 참조
 
-#### `MunsellConverter`
+#### `MunsellConvert`
 
 ```javascript
-const conv = new MunsellConverter();
+const conv = new MunsellConvert(ChipDatabase.build());
 
-// ✅ 핵심: RGB → 먼셀 전체 분석
+// ✅ 핵심: sRGB → 먼셀 전체 분석 (이미 조명 보정된 값을 넣을 것)
 const result = conv.analyze(r, g, b);
-// → { code, hue, value, chroma, korName, soilClass,
-//     hex, chipHex, deltaE, accuracy, candidates, rgb, lab }
-
-// ✅ 먼셀 코드 → HEX 색상
-const hex = conv.codeToHex('10YR 4/3');   // → "#7e6238"
-
-// ✅ ΔE2000 직접 계산 (Lab 값 필요)
-const dE = conv._deltaE2000(lab1, lab2);
+// → { code, codePrecise, hue, value, chroma, isNeutral, korName, soilClass,
+//     hex, chipHex, deltaE, accuracy, candidates, fromLib, pipeline, rgb }
 ```
 
-#### `ColorTemperatureCorrector`
+#### `ChromAdapt`
 
 ```javascript
-const ctc = new ColorTemperatureCorrector();
+// ✅ 단일 픽셀 현장 보정 (r,g,b: 0-255 / K: 촬영 조명 색온도)
+const corrected = ChromAdapt.correctPixelForField(r, g, b, K);   // → { r, g, b }
 
-// ✅ 단일 픽셀 보정 (r,g,b: 0-255 / sourceK: 켈빈)
-const corrected = ctc.correctPixel(r, g, b, sourceK);
-// → { r, g, b }
+// ✅ ImageData 전체 보정 (Canvas API, 고속 경로: 결합 행렬 + 감마 LUT)
+const correctedData = ChromAdapt.correctImageDataForField(imageData, K);
 
-// ✅ ImageData 전체 보정 (Canvas API)
-const correctedData = ctc.correctImageData(imageData, sourceK);
-
-// ✅ 내장 프리셋 목록
-const presets = ctc.presets;
-// → { sunny:{K:5500,...}, overcast:{K:7500,...}, shade:{K:9000,...}, ... }
+// ✅ 그레이카드 화이트밸런스: 무채색 픽셀 → 광원 화이트포인트 추정
+const est = ChromAdapt.estimateIlluminantFromGray(r, g, b);
+// → { wp, cct, duv, warnings }  (warnings: clipped_high/low, not_neutral, suspicious_cct)
+const wbCorrected = ChromAdapt.correctImageDataToD65(imageData, est.wp);
 
 // ✅ 켈빈 → CIE XYZ 화이트 포인트
-const xyz = ctc.kelvinToXYZ(6504);
+const xyz = ChromAdapt.kelvinToXYZ(6504);
+```
+
+#### `NearestChip`
+
+```javascript
+// ✅ CIEDE2000 색차 (지각적으로 가장 정확한 색차 공식)
+const dE = NearestChip.deltaE2000(lab1, lab2);
+
+// ✅ 등가 임계값 (AQP/NCSS 기준)
+NearestChip.EQUIVALENCE_THRESHOLD;   // 2.15
 ```
 
 #### `result.candidates` 구조

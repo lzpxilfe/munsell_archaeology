@@ -49,31 +49,41 @@ class MunsellConvert {
     const hex  = this._toHex(r, g, b);
     const pipe = this._sRGBtoPipeline(r, g, b);
 
-    // 1차: munsell.js (XYZ_C → Munsell, 보간 포함)
-    let code, fromLib;
+    // 1차: munsell.js (XYZ → Munsell HVC, renotation 보간)
+    let code, codePrecise = null, fromLib = false;
     if (this.libReady) {
-      const result = this._libConvert(pipe);
-      if (result) { code = result; fromLib = true; }
+      const lib = this._libConvert(pipe);
+      if (lib) { code = lib.code; codePrecise = lib.precise; fromLib = true; }
     }
 
-    // 2차: LUT ΔE2000 검색
-    const candidates = NearestChip.findNearest(pipe.lab_C, this.chips);
-    if (!code) {
-      code     = candidates[0].code;
-      fromLib  = false;
-    }
+    // 2차: LUT ΔE2000 검색 (폴백 + Top-N 후보 목록)
+    let candidates = NearestChip.findNearest(pipe.lab_C, this.chips);
+    if (!code) code = candidates[0].code;
 
     const parsed = this._parseCode(code);
     const chipHex = this._codeToHex(code);
 
-    // best candidate에 munsell.js 결과 반영
+    // munsell.js 결과를 1순위 후보로 삽입
+    // dE00은 해당 칩의 Lab_C 기준으로 재계산 (LUT 최근접 칩과 다를 수 있음)
     if (fromLib) {
-      candidates[0] = {
-        ...candidates[0],
+      const labChip = this._codeToLabC(code);
+      const dE = labChip
+        ? NearestChip.deltaE2000(pipe.lab_C, labChip)
+        : candidates[0].dE;
+      const libCand = {
         code,
-        hex: chipHex,
-        from: 'munsell.js',
+        hex:        chipHex,
+        hue:        parsed.hue,
+        value:      parsed.value,
+        chroma:     parsed.chroma,
+        dE:         Math.round(dE * 100) / 100,
+        sigma:      dE,
+        equivalent: dE <= NearestChip.EQUIVALENCE_THRESHOLD,
+        from:       'munsell.js',
       };
+      candidates = [libCand, ...candidates.filter(c => c.code !== code)]
+        .slice(0, 5)
+        .map((c, i) => ({ ...c, rank: i + 1 }));
     }
 
     const bestDe  = candidates[0].dE;
@@ -81,7 +91,8 @@ class MunsellConvert {
 
     return {
       // 먼셀 코드
-      code,
+      code,                    // 토색첩 표기로 반올림된 코드 (예: '10YR 4/3')
+      codePrecise,             // munsell.js 연속값 (예: '9.8YR 4.1/3.2', 폴백 시 null)
       hue:       parsed.hue,
       value:     parsed.value,
       chroma:    parsed.chroma,
@@ -167,30 +178,86 @@ class MunsellConvert {
   }
 
   _detectLibAPI() {
-    // munsell.js v1.1.x API (privet-kitty/munsell.js)
+    // privet-kitty/munsell v1.1.x 실제 export 기준
+    // (xyY 계열 함수는 존재하지 않음 — xyzToMhvc / mhvcToMunsell 사용)
     this._libFns = {
-      toRgb255:  typeof munsell.munsellToRgb255 === 'function',
-      xyzToCode: typeof munsell.xyzToMunsell === 'function',
-      illC:      typeof munsell.ILLUMINANT_C !== 'undefined',
+      xyzToMhvc:     typeof munsell.xyzToMhvc === 'function',
+      mhvcToMunsell: typeof munsell.mhvcToMunsell === 'function',
+      toRgb255:      typeof munsell.munsellToRgb255 === 'function',
+      toLab:         typeof munsell.munsellToLab === 'function',
     };
     console.info('[MunsellConvert] 사용 가능한 함수:', this._libFns);
   }
 
   /**
-   * XYZ_C → 먼셀 코드 (munsell.js 경유)
-   * xyzToMunsell(X, Y, Z, illuminant)에 Illuminant C를 명시해
-   * 라이브러리가 내부에서 재적응하지 않도록 한다.
+   * XYZ → 먼셀 코드 (munsell.js 경유)
+   *
+   * munsell.js의 native 공간은 Illuminant C지만, XYZ_D65를 기본
+   * illuminant(D65)로 넘기면 라이브러리가 자체 CAT 행렬로 C에 적응시킨다.
+   * munsellToRgb255()의 역방향과 정확히 같은 행렬을 쓰므로
+   * 왕복(먼셀 → sRGB → 먼셀) 일관성이 보장된다.
+   * (pipe.xyz_C / lab_C의 CAT02 값은 LUT 검색·디버그 표시용으로 유지)
+   *
+   * @returns {{ code, precise, mhvc } | null}
    */
   _libConvert(pipe) {
     try {
-      if (!this._libFns?.xyzToCode) return null;
-      const { X, Y, Z } = pipe.xyz_C;
-      const illC = this._libFns.illC ? munsell.ILLUMINANT_C : undefined;
-      const result = munsell.xyzToMunsell(X, Y, Z, illC);
-      return typeof result === 'string' ? result : null;
+      if (!this._libFns?.xyzToMhvc) return null;
+      const { X, Y, Z } = pipe.xyz_D65;
+      const [h100, v, c] = munsell.xyzToMhvc(X, Y, Z);   // 기본 illuminant = D65
+      if (![h100, v, c].every(Number.isFinite)) return null;
+      return {
+        code:    this._snapMhvc(h100, v, c),
+        precise: this._libFns.mhvcToMunsell ? munsell.mhvcToMunsell(h100, v, c, 1) : null,
+        mhvc:    [h100, v, c],
+      };
     } catch (e) {
-      return null;  // 폴백으로 LUT 사용
+      return null;  // 수렴 실패 등 → LUT 폴백
     }
+  }
+
+  /**
+   * 연속 HVC → 토색첩(soil color chart) 표기 반올림
+   *
+   * munsell.js는 '8.7YR 3.9/3.4'처럼 연속값을 반환하지만, 실물 토색첩
+   * 칩과 대조하는 현장 도구라는 목적상 표시·매칭에는 토색첩 규약을
+   * 따른다:
+   *   - hue:    2.5 단위 (2.5 / 5 / 7.5 / 10)
+   *   - value:  정수 (1–9)
+   *   - chroma: 정수 (최소 1, 0.5 미만이면 무채색 N)
+   *
+   * @param {number} h100  hue (0–100; R→YR→Y→GY→G→BG→B→PB→P→RP 순)
+   * @param {number} v     value (0–10)
+   * @param {number} c     chroma (0–)
+   * @returns {string}  예: '10YR 4/3', 'N 5/'
+   */
+  _snapMhvc(h100, v, c) {
+    const value = Math.min(9, Math.max(1, Math.round(v)));
+    if (c < 0.5) return `N ${value}/`;
+
+    const FAMILIES = ['R', 'YR', 'Y', 'GY', 'G', 'BG', 'B', 'PB', 'P', 'RP'];
+    const h = ((h100 % 100) + 100) % 100;
+    let idx = Math.floor(h / 10);
+    let num = Math.round((h - idx * 10) / 2.5) * 2.5;
+    if (num === 0) { num = 10; idx = (idx + 9) % 10; }
+
+    const chroma = Math.max(1, Math.round(c));
+    return `${num}${FAMILIES[idx]} ${value}/${chroma}`;
+  }
+
+  /**
+   * 먼셀 코드 → Lab (Illuminant C)
+   * munsell.js의 munsellToLab은 native 공간인 Illuminant C 기준 Lab을 반환
+   */
+  _codeToLabC(code) {
+    if (this.libReady && this._libFns?.toLab) {
+      try {
+        const [L, a, b] = munsell.munsellToLab(code);
+        return { L, a, b };
+      } catch {}
+    }
+    const chip = this.chips.find(c => c.code === code);
+    return chip?.labC ?? null;
   }
 
   // ─── 파싱 ────────────────────────────────────────────────────────

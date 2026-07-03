@@ -281,14 +281,39 @@ const ChipDatabase = (() => {
 
   // ─── 빌드: xyY_C → lab_C 사전 계산 ─────────────────────────────
 
+  /**
+   * munsell.js가 로드되어 있으면 각 칩의 xyY/Lab/hex를 라이브러리로
+   * 재계산한다. RAW는 빌드 시점에 정적으로 생성해 둔 값이라, 라이브러리
+   * 버전이 바뀌거나 RAW를 손으로 조정해도 로드된 라이브러리와의 불일치로
+   * dE00 판정이 왜곡되는 일을 막는 안전망이다.
+   * 라이브러리가 없으면 RAW 폴백 (Y만 ASTM D1535로 재보정).
+   */
   function build() {
+    const lib = typeof munsell !== 'undefined' ? munsell : null;
+
     return RAW.map(([code, hue, value, chroma, x, y, Y, hex]) => {
-      // xyY_C → XYZ_C
-      const xyz_C = Illuminant.xyYtoXYZ(x, y, Y);
-      // XYZ_C → Lab_C (Illuminant C 기준)
+      if (lib) {
+        try {
+          const [X, Yc, Z] = lib.munsellToXyz(code, lib.ILLUMINANT_C);
+          const [L, a, b]  = lib.munsellToLab(code);   // native 공간 = Illuminant C
+          const [r, g, bb] = lib.munsellToRgb255(code);
+          const xyY        = Illuminant.XYZtoxyY(X, Yc, Z);
+          return {
+            code, hue, value, chroma,
+            x: xyY.x, y: xyY.y, Y: xyY.Y,
+            hex: '#' + [r, g, bb].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join(''),
+            labC: { L, a, b },
+            xyz_C: { X, Y: Yc, Z },
+          };
+        } catch {}  // 파싱 불가 칩 → RAW 폴백
+      }
+
+      // 폴백: RAW의 x,y + ASTM D1535 Y (×0.975: MgO → 완전 확산 반사체 기준)
+      const Yastm = value > 0 ? Illuminant.munsellValueToY(value) * 0.975 : Y;
+      const xyz_C = Illuminant.xyYtoXYZ(x, y, Yastm);
       const labC  = Illuminant.XYZtoLab(xyz_C, Illuminant.WP_C);
 
-      return { code, hue, value, chroma, x, y, Y, hex, labC, xyz_C };
+      return { code, hue, value, chroma, x, y, Y: Yastm, hex, labC, xyz_C };
     });
   }
 
