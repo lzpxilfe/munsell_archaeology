@@ -20,6 +20,7 @@ a = Analysis(
         ('../js', 'web/js'),
         ('../css', 'web/css'),
         ('../fixtures', 'web/fixtures'),
+        ('assets/icon.ico', 'assets'),
     ],
     hiddenimports=[
         'webview.platforms.edgechromium',
@@ -54,4 +55,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='assets/icon.ico',
 )

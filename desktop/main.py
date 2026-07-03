@@ -28,6 +28,15 @@ def asset_root():
     return Path(__file__).resolve().parent.parent
 
 
+def icon_path():
+    """창 아이콘(.ico). 개발 시 desktop/assets/, exe에서는 spec의 datas로 포함."""
+    if getattr(sys, "frozen", False):
+        candidate = Path(sys._MEIPASS) / "assets" / "icon.ico"
+    else:
+        candidate = Path(__file__).resolve().parent / "assets" / "icon.ico"
+    return str(candidate) if candidate.exists() else None
+
+
 def storage_dir():
     """WebView2 사용자 데이터(localStorage 등) 보관 위치.
 
@@ -70,6 +79,7 @@ def run(debug=False, smoke=False):
         height=880,
         min_size=(980, 640),
     )
+    icon = icon_path()
 
     if smoke:
         E2E_JS = """
@@ -230,6 +240,7 @@ def run(debug=False, smoke=False):
         debug=debug,
         private_mode=False,
         storage_path=str(storage_dir()),
+        icon=icon,
     )
     return 0
 
