@@ -103,10 +103,18 @@ munsell_archaeology/
 │   └── style.css                ← 다크/라이트 모드 UI
 │
 ├── ⚙️ js/
-│   ├── colorTemp.js             ← 🌡️ 색온도 보정 엔진 (Bradford CAT)
-│   ├── munsellConverter.js      ← 🎯 RGB→먼셀 핵심 변환 + ΔE2000
+│   ├── illuminant.js            ← 💡 CIE 광원 화이트 포인트 + xyY↔XYZ 변환
+│   ├── chromAdapt.js            ← 🌡️ CAT02/Bradford 크로마틱 어댑테이션 (색온도 보정)
+│   ├── nearestChip.js           ← 📏 ΔE2000 최근접 먼셀 칩 검색
+│   ├── chipDatabase.js          ← 🗂️ 먼셀 Renotation 칩 룩업 테이블 (LUT)
+│   ├── munsellConvert.js        ← 🎯 sRGB→먼셀 변환 파이프라인
+│   ├── fieldRecord.js           ← 📋 현장 토층 기록 스키마 (USDA Field Book 기반)
 │   ├── colorPicker.js           ← 🖼️ Canvas 스포이드 + 돋보기
 │   └── app.js                   ← 🔗 앱 전체 로직
+│
+├── 🧪 fixtures/
+│   ├── known_chips.json         ← 검증용 기준 칩 데이터
+│   └── roundtrip_test.html      ← 변환 왕복 테스트 페이지
 │
 ├── 📖 README.md
 ├── ⚖️  LICENSE
@@ -117,18 +125,27 @@ munsell_archaeology/
 
 ## 🔧 다른 프로젝트에서 참조하기
 
-이 레포지토리의 핵심 모듈(`colorTemp.js`, `munsellConverter.js`)만 가져다 쓸 수 있습니다.
+이 레포지토리의 핵심 모듈만 가져다 쓸 수 있습니다. 모듈 간 의존성이 있으므로 아래 순서대로 로드하세요.
+
+```html
+<!-- 선택: munsell.js CDN — 없으면 내장 LUT로 폴백 -->
+<script src="https://cdn.jsdelivr.net/npm/munsell@latest/dist/munsell.min.js"></script>
+
+<script src="js/illuminant.js"></script>
+<script src="js/chromAdapt.js"></script>
+<script src="js/nearestChip.js"></script>
+<script src="js/chipDatabase.js"></script>
+<script src="js/munsellConvert.js"></script>
+```
 
 ### 기본 사용 예시
 
 ```javascript
-// 두 파일을 script 태그로 포함하거나 import
-
-const corrector = new ColorTemperatureCorrector();
-const converter = new MunsellConverter();
+const chipsDB   = ChipDatabase.build();
+const converter = new MunsellConvert(chipsDB);
 
 // 1. 현장 조명 보정 (그늘 9000K → D65)
-const { r, g, b } = corrector.correctPixel(rawR, rawG, rawB, 9000);
+const { r, g, b } = ChromAdapt.correctPixelForField(rawR, rawG, rawB, 9000);
 
 // 2. 먼셀 변환
 const result = converter.analyze(r, g, b);
@@ -138,50 +155,53 @@ console.log(result.hue);         // "10YR"
 console.log(result.value);       // 4
 console.log(result.chroma);      // 3
 console.log(result.korName);     // "갈색"
-console.log(result.soilClass);   // { label: "갈색토", en: "Brown Soil", class: "brown" }
+console.log(result.soilClass);   // { class: "brown", label: "갈색토", en: "Brown Soil" }
 console.log(result.deltaE);      // 1.8  (ΔE2000 — 낮을수록 정확)
-console.log(result.accuracy);    // { level: "close", label: "근접", cls: "fair" }
+console.log(result.accuracy);    // { level: "close", label: "근접", cls: "fair", icon: "○" }
 console.log(result.candidates);  // Top-5 후보 칩 배열
 console.log(result.chipHex);     // "#7e6238"  (가장 가까운 칩의 HEX)
 ```
 
 ### API 참조
 
-#### `MunsellConverter`
+#### `MunsellConvert`
 
 ```javascript
-const conv = new MunsellConverter();
+const conv = new MunsellConvert(ChipDatabase.build());
 
-// ✅ 핵심: RGB → 먼셀 전체 분석
+// ✅ 핵심: sRGB → 먼셀 전체 분석
+// (munsell.js 로드 시 보간 변환, 미로드 시 LUT ΔE2000 검색)
 const result = conv.analyze(r, g, b);
-// → { code, hue, value, chroma, korName, soilClass,
-//     hex, chipHex, deltaE, accuracy, candidates, rgb, lab }
-
-// ✅ 먼셀 코드 → HEX 색상
-const hex = conv.codeToHex('10YR 4/3');   // → "#7e6238"
-
-// ✅ ΔE2000 직접 계산 (Lab 값 필요)
-const dE = conv._deltaE2000(lab1, lab2);
+// → { code, hue, value, chroma, isNeutral, hex, chipHex, deltaE,
+//     accuracy, korName, soilClass, pipeline, candidates, fromLib, rgb }
 ```
 
-#### `ColorTemperatureCorrector`
+#### `ChromAdapt`
 
 ```javascript
-const ctc = new ColorTemperatureCorrector();
-
-// ✅ 단일 픽셀 보정 (r,g,b: 0-255 / sourceK: 켈빈)
-const corrected = ctc.correctPixel(r, g, b, sourceK);
+// ✅ 단일 픽셀 현장 조명 보정 (r,g,b: 0–255 / K: 촬영 조명 켈빈)
+const corrected = ChromAdapt.correctPixelForField(r, g, b, K);
 // → { r, g, b }
 
 // ✅ ImageData 전체 보정 (Canvas API)
-const correctedData = ctc.correctImageData(imageData, sourceK);
+const correctedData = ChromAdapt.correctImageDataForField(imageData, K);
 
-// ✅ 내장 프리셋 목록
-const presets = ctc.presets;
-// → { sunny:{K:5500,...}, overcast:{K:7500,...}, shade:{K:9000,...}, ... }
+// ✅ 켈빈 → CIE XYZ 화이트 포인트 (Kang et al. 2002 근사식)
+const xyz = ChromAdapt.kelvinToXYZ(6504);
 
-// ✅ 켈빈 → CIE XYZ 화이트 포인트
-const xyz = ctc.kelvinToXYZ(6504);
+// ✅ 먼셀 변환용 CAT02 어댑테이션 (XYZ는 { X, Y, Z } 객체)
+const xyzC = ChromAdapt.D65toC(xyzD65);   // D65 → Illuminant C
+const back = ChromAdapt.CtoD65(xyzC);     // Illuminant C → D65
+```
+
+#### `NearestChip`
+
+```javascript
+// ✅ ΔE2000 직접 계산 (Lab 값: { L, a, b })
+const dE = NearestChip.deltaE2000(lab1, lab2);
+
+// ✅ Lab(Illuminant C) → 최근접 칩 Top-N 검색
+const candidates = NearestChip.findNearest(labC, chipsDB, 5);
 ```
 
 #### `result.candidates` 구조
@@ -189,11 +209,14 @@ const xyz = ctc.kelvinToXYZ(6504);
 ```javascript
 // Top-5 후보 칩 — ΔE2000 오름차순
 [
-  { code: "10YR 4/3", hex: "#7e6238", dE: 1.8, from: "munsell.js" },  // best
-  { code: "10YR 4/4", hex: "#7e6238", dE: 2.3, from: "LUT" },
-  { code: "7.5YR 4/3",hex: "#7a5030", dE: 3.1, from: "LUT" },
+  { code: "10YR 4/2", hex: "#71624e", hue: "10YR", value: 4, chroma: 2,
+    dE: 1.8, sigma: 1.8, rank: 1, equivalent: true },   // best
+  { code: "10YR 4/4", hex: "#80603a", hue: "10YR", value: 4, chroma: 4,
+    dE: 2.3, sigma: 2.3, rank: 2, equivalent: false },
   // ...
 ]
+// LUT 칩은 짝수 채도만 포함하며, munsell.js 보간 변환이 성공하면
+// 첫 항목의 code가 보간 결과(예: "10YR 4/3")로 바뀌고 from: "munsell.js"가 추가됩니다.
 ```
 
 ---
