@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>Munsell 파이프라인 왕복 검증 (Roundtrip Test)</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'JetBrains Mono', monospace, sans-serif; background: #1a1a1a; color: #e0e0e0; padding: 20px; }
+    h1 { color: #c4a44e; margin-bottom: 4px; font-size: 1.2rem; }
+    p.subtitle { color: #888; font-size: 0.75rem; margin-bottom: 20px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+    th { background: #2a2a2a; padding: 6px 8px; text-align: left; color: #c4a44e; border-bottom: 1px solid #444; }
+    td { padding: 5px 8px; border-bottom: 1px solid #2a2a2a; vertical-align: middle; }
+    tr:hover td { background: #222; }
+    .swatch { width: 28px; height: 28px; border-radius: 4px; border: 1px solid #444; display: inline-block; }
+    .pass  { color: #6dbe6d; font-weight: bold; }
+    .warn  { color: #e0b84a; font-weight: bold; }
+    .fail  { color: #e05858; font-weight: bold; }
+    .code  { font-family: monospace; color: #8ec8ff; }
+    .sep   { height: 20px; }
+    #summary { margin-top: 20px; padding: 12px; background: #222; border-radius: 6px; font-size: 0.8rem; }
+    .pipeline-detail { font-size: 0.65rem; color: #666; line-height: 1.6; }
+  </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/munsell@latest/dist/munsell.min.js"></script>
+  <script src="../js/illuminant.js"></script>
+  <script src="../js/chromAdapt.js"></script>
+  <script src="../js/nearestChip.js"></script>
+  <script src="../js/chipDatabase.js"></script>
+  <script src="../js/munsellConvert.js"></script>
+</head>
+<body>
+
+<h1>🏺 Munsell Kit — 파이프라인 왕복 검증 (Roundtrip Test)</h1>
+<p class="subtitle">
+  파이프라인: sRGB[D65] → XYZ[D65] → CAT02 → XYZ[C] → xyY[C] → Munsell → 역방향 → sRGB[D65]<br>
+  기준: Newhall, Nickerson &amp; Judd (1943) Renotation · ASTM D1535 · AQP dE00 &lt; 2.15 = 등가
+</p>
+
+<div id="output">⏳ 로딩 중...</div>
+
+<script>
+async function runTests() {
+  // DB 빌드
+  const chips = ChipDatabase.build();
+  const converter = new MunsellConvert(chips);
+
+  // fixtures 로드
+  const res = await fetch('known_chips.json').catch(() => null);
+  const fixtures = res ? (await res.json()).filter(f => f.munsell) : [];
+
+  // 추가 테스트 케이스 (DB에서 직접)
+  const dbTests = [
+    { desc: 'N 5/ — 중성 회색',        munsell: 'N 5/',         sRGB: [127, 127, 127] },
+    { desc: '10YR 4/3 — 갈색토',        munsell: '10YR 4/3',     sRGB: [116, 88, 52]  },
+    { desc: '10YR 3/2 — 암갈색토',      munsell: '10YR 3/2',     sRGB: [80, 62, 40]   },
+    { desc: '7.5YR 4/4 — 갈색 (7.5YR)', munsell: '7.5YR 4/4',    sRGB: [132, 81, 50]  },
+    { desc: '5YR 4/4 — 적갈색토',       munsell: '5YR 4/4',      sRGB: [146, 72, 46]  },
+    { desc: '2.5Y 6/4 — 황갈색',        munsell: '2.5Y 6/4',     sRGB: [174, 148, 92] },
+    { desc: '5Y 5/2 — 회황색',          munsell: '5Y 5/2',       sRGB: [132, 126, 90] },
+    { desc: '10YR 6/4 — 황갈색',        munsell: '10YR 6/4',     sRGB: [178, 140, 88] },
+  ];
+
+  const allTests = [...dbTests, ...fixtures.map(f => ({
+    desc:    f.desc,
+    munsell: f.munsell,
+    sRGB:    f.sRGB_D65_expected,
+  }))];
+
+  let html = `<table>
+    <thead>
+      <tr>
+        <th>예상 먼셀</th>
+        <th>입력 sRGB</th>
+        <th>채취색</th>
+        <th>분석 결과</th>
+        <th>칩색</th>
+        <th>dE00</th>
+        <th>판정</th>
+        <th>파이프라인 상세</th>
+      </tr>
+    </thead><tbody>`;
+
+  let pass = 0, warn = 0, fail = 0;
+
+  for (const test of allTests) {
+    const [r, g, b] = test.sRGB;
+    const res = converter.analyze(r, g, b);
+
+    const dE        = res.deltaE;
+    const passed    = res.candidates[0]?.equivalent || dE < 2.15;
+    const roughOk   = dE < 3.5;
+    const cls       = dE < 2.15 ? 'pass' : dE < 3.5 ? 'warn' : 'fail';
+    const icon      = dE < 2.15 ? '✓ 등가' : dE < 3.5 ? '△ 근접' : '✕ 오류';
+    if (dE < 2.15) pass++; else if (dE < 3.5) warn++; else fail++;
+
+    const pipelineStr = res.pipeline ? `
+      xyY_C: x=${res.pipeline.xyY_C.x?.toFixed(4)} y=${res.pipeline.xyY_C.y?.toFixed(4)} Y=${res.pipeline.xyY_C.Y?.toFixed(4)}<br>
+      Lab_C: L=${res.pipeline.lab_C.L?.toFixed(1)} a=${res.pipeline.lab_C.a?.toFixed(1)} b=${res.pipeline.lab_C.b?.toFixed(1)}
+    ` : '–';
+
+    html += `<tr>
+      <td class="code">${test.munsell}</td>
+      <td class="code">rgb(${r},${g},${b})</td>
+      <td><span class="swatch" style="background:${res.hex}" title="${res.hex}"></span></td>
+      <td class="code">${res.code}</td>
+      <td><span class="swatch" style="background:${res.chipHex}" title="${res.chipHex}"></span></td>
+      <td class="${cls}">${dE}</td>
+      <td class="${cls}">${icon}</td>
+      <td class="pipeline-detail">${pipelineStr}</td>
+    </tr>`;
+  }
+
+  html += `</tbody></table>`;
+
+  const total = allTests.length;
+  html += `<div id="summary">
+    <strong>검증 결과:</strong>
+    <span class="pass">✓ 등가 ${pass}/${total}</span> ·
+    <span class="warn">△ 근접 ${warn}/${total}</span> ·
+    <span class="fail">✕ 오류 ${fail}/${total}</span>
+    <br><small style="color:#666">
+      등가 기준: dE00 &lt; 2.15 (AQP/NCSS 기준, 0.001 유의수준)<br>
+      조명: Illuminant C (Munsell Renotation 기준) · CAT02 어댑테이션
+    </small>
+  </div>`;
+
+  document.getElementById('output').innerHTML = html;
+}
+
+// munsell.js 로딩 대기
+const waitLib = () => {
+  if (typeof munsell !== 'undefined') runTests();
+  else setTimeout(waitLib, 200);
+};
+waitLib();
+</script>
+</body>
+</html>

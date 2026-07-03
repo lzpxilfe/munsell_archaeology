@@ -123,7 +123,7 @@ class ColorPicker {
   _correctAsync(imageData, K) {
     return new Promise(resolve => {
       // Run correction off the main thread using setTimeout chunking
-      const corrected = this.tempCorrector.correctImageData(imageData, K);
+      const corrected = this.tempCorrector.correctImageDataForField(imageData, K);
       resolve(corrected);
     });
   }

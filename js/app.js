@@ -1,5 +1,5 @@
 /**
- * app.js — 고고학용 먼셀 색 판별 도구 메인 로직
+ * app.js — 고고학용 먼셀 색 판별 도구 메인 로직 (munsell-kit 연동)
  */
 
 // ─── State ────────────────────────────────────────────────────────────
@@ -13,9 +13,20 @@ const state = {
   theme: localStorage.getItem('munsell-theme') || 'dark',
 };
 
+// ─── Preset Lighting Descriptions ─────────────────────────────────────
+const LIGHTING_PRESETS = {
+  5500: { K: 5500, label: '맑은 날 직사광', icon: '☀️', desc: '직사광선 (5500K)' },
+  6500: { K: 6500, label: '흐린 날',         icon: '🌤️', desc: '엷은 구름 (6500K)' },
+  7500: { K: 7500, label: '흐린 날씨/구름',   icon: '☁️', desc: '흐린 날 (7500K)' },
+  9000: { K: 9000, label: '그늘',             icon: '🌿', desc: '나무 그늘 (9000K)' },
+  4000: { K: 4000, label: '실내 LED',        icon: '🔆', desc: 'LED (4000K)' },
+  3200: { K: 3200, label: '실내 인공조명',   icon: '💡', desc: '텅스텐 (3200K)' },
+  6504: { K: 6504, label: '표준 기준 (D65)', icon: '⚖️', desc: '보정 없음 (6504K)' },
+};
+
 // ─── Modules ──────────────────────────────────────────────────────────
-const converter = new MunsellConverter();
-const tempCorrector = new ColorTemperatureCorrector();
+const chipsDB = ChipDatabase.build();
+const converter = new MunsellConvert(chipsDB);
 let picker = null;
 
 // ─── DOM refs ─────────────────────────────────────────────────────────
@@ -77,7 +88,7 @@ function setupImageUpload() {
   const magnifier = $('#magnifier');
   const magCanvas = $('#magnifier-canvas');
 
-  // Init picker
+  // Init picker (ChromAdapt is used as the temperature corrector)
   picker = new ColorPicker(canvas, magnifier, magCanvas, handleColorPick);
 
   // Click on zone
@@ -121,7 +132,7 @@ function loadImageFile(file) {
     state.image = img;
     state.correctedDataCache = null;
     showCanvas();
-    picker.setImage(img, state.lightingK, tempCorrector);
+    picker.setImage(img, state.lightingK, ChromAdapt);
 
     // Show image info
     const info = $('#image-info');
@@ -136,7 +147,8 @@ function showCanvas() {
   const wrap = $('#canvas-wrapper');
   if (zone) zone.style.display = 'none';
   if (wrap) wrap.style.display = 'flex';
-  $('#clear-image-btn')?.style && ($('#clear-image-btn').style.display = '');
+  const clearBtn = $('#clear-image-btn');
+  if (clearBtn) clearBtn.style.display = '';
 }
 
 function clearImage() {
@@ -146,8 +158,10 @@ function clearImage() {
   const wrap = $('#canvas-wrapper');
   if (zone) zone.style.display = '';
   if (wrap) wrap.style.display = 'none';
-  $('#clear-image-btn').style.display = 'none';
-  $('#image-info').textContent = '';
+  const clearBtn = $('#clear-image-btn');
+  if (clearBtn) clearBtn.style.display = 'none';
+  const imgInfo = $('#image-info');
+  if (imgInfo) imgInfo.textContent = '';
 }
 
 // ─── Lighting / Color Temperature ─────────────────────────────────────
@@ -170,10 +184,6 @@ function setupLightingControls() {
     setLighting(K);
     if (label) label.textContent = `${K}K`;
     $$('.preset-btn').forEach(b => b.classList.remove('active'));
-    // Highlight closest preset
-    const closest = Object.values(tempCorrector.presets)
-      .reduce((a, b) => Math.abs(b.K - K) < Math.abs(a.K - K) ? b : a);
-    // (don't set active — custom)
   });
 
   // Init
@@ -184,19 +194,18 @@ function setupLightingControls() {
 
 function setLighting(K) {
   state.lightingK = K;
-  tempCorrector.setCurrentK(K);
   state.correctedDataCache = null;
 
-  // Update picker with new correction
+  // Update picker with new correction (ChromAdapt used directly)
   if (state.image && picker) {
-    picker.setLightingK(K, tempCorrector);
+    picker.setLightingK(K, ChromAdapt);
   }
 
   // Update display
   const desc = $('#lighting-desc');
   if (desc) {
-    const preset = Object.values(tempCorrector.presets)
-      .find(p => Math.abs(p.K - K) < 200);
+    const preset = LIGHTING_PRESETS[K] || Object.values(LIGHTING_PRESETS)
+      .reduce((a, b) => Math.abs(b.K - K) < Math.abs(a.K - K) ? b : a);
     desc.textContent = preset ? preset.desc : `${K}K`;
   }
 }
@@ -215,8 +224,8 @@ function setupSamplingControls() {
 
 // ─── Color Pick Handler ───────────────────────────────────────────────
 function handleColorPick({ r, g, b }) {
-  // Apply color temp correction
-  const corrected = tempCorrector.correctPixel(r, g, b, state.lightingK);
+  // Apply CAT02 chromatic adaptation from field lighting K to D65
+  const corrected = ChromAdapt.correctPixelForField(r, g, b, state.lightingK);
   const { r: rc, g: gc, b: bc } = corrected;
 
   // Run Munsell analysis
@@ -258,11 +267,6 @@ function renderResult(res) {
   }
 
   // Breakdown (Hue / Value / Chroma)
-  $('#bd-hue')?.   ((el) => el.textContent = res.hue);
-  $('#bd-value')?.  ((el) => el.textContent = res.value);
-  $('#bd-chroma')?.((el) => el.textContent = res.chroma);
-
-  // Compact way without optional chaining issues:
   setEl('bd-hue',    res.hue);
   setEl('bd-value',  res.value);
   setEl('bd-chroma', res.chroma);
@@ -278,9 +282,11 @@ function renderResult(res) {
     setEl('val-raw-r', res.rawRgb.r);
     setEl('val-raw-g', res.rawRgb.g);
     setEl('val-raw-b', res.rawRgb.b);
-    $('#raw-row')?.style && ($('#raw-row').style.display = '');
+    const rawRow = $('#raw-row');
+    if (rawRow && rawRow.style) rawRow.style.display = '';
   } else {
-    $('#raw-row')?.style && ($('#raw-row').style.display = 'none');
+    const rawRow = $('#raw-row');
+    if (rawRow && rawRow.style) rawRow.style.display = 'none';
   }
 
   // ΔE accuracy badge
@@ -288,6 +294,7 @@ function renderResult(res) {
   if (badge) {
     badge.textContent = `ΔE ${res.deltaE} — ${res.accuracy.label}`;
     badge.className = `delta-e-badge ${res.accuracy.cls}`;
+    badge.style.display = '';
   }
 
   // Candidates list
@@ -311,19 +318,22 @@ function renderCandidates(candidates) {
 
   candidates.forEach((c, i) => {
     const div = document.createElement('div');
-    div.className = `candidate-item${i === 0 ? ' best' : ''}`;
+    div.className = `candidate-item${c.equivalent ? ' best' : ''}`;
     div.innerHTML = `
       <div class="cand-swatch" style="background:${c.hex}"></div>
       <div class="cand-info">
         <span class="cand-code">${c.code}</span>
-        <span class="cand-de ${i===0?'good':c.dE<3?'fair':'poor'}">ΔE ${Math.round(c.dE*10)/10}</span>
+        <span class="cand-de ${c.equivalent ? 'good' : c.dE < NearestChip.EQUIVALENCE_THRESHOLD * 1.6 ? 'fair' : 'poor'}">
+          ΔE ${c.dE.toFixed(1)} ${c.equivalent ? '(등가)' : ''}
+        </span>
       </div>
     `;
     div.addEventListener('click', () => {
       if (state.currentResult) {
         state.currentResult.code    = c.code;
         state.currentResult.chipHex = c.hex;
-        state.currentResult.deltaE  = Math.round(c.dE * 10) / 10;
+        state.currentResult.deltaE  = c.dE;
+        state.currentResult.accuracy = NearestChip.accuracy(c.dE);
         const parsed = converter._parseCode(c.code);
         Object.assign(state.currentResult, parsed);
         renderResult(state.currentResult);
@@ -339,10 +349,10 @@ function renderSoilReference() {
   const container = $('#soil-chips');
   if (!container) return;
 
-  const chips = converter.getSoilColorMap ? converter.getSoilColorMap() :
-    converter.chipDB.filter(c => c.code.includes('10YR') || c.code.includes('7.5YR'));
+  // Filter YR family for standard soil color cards
+  const chips = chipsDB.filter(c => c.code.includes('10YR') && c.value >= 3 && c.value <= 6);
 
-  chips.slice(0, 20).forEach(chip => {
+  chips.slice(0, 24).forEach(chip => {
     const el = document.createElement('div');
     el.className = 'soil-chip';
     el.title = chip.code;
@@ -351,7 +361,12 @@ function renderSoilReference() {
       <span>${chip.code}</span>
     `;
     el.addEventListener('click', () => {
-      toast(`참조: ${chip.code}`, 'info');
+      // Analyze the chip color directly to preview it
+      const r = parseInt(chip.hex.slice(1,3), 16);
+      const g = parseInt(chip.hex.slice(3,5), 16);
+      const b = parseInt(chip.hex.slice(5,7), 16);
+      handleColorPick({ r, g, b });
+      toast(`참조 칩 선택: ${chip.code}`, 'info');
     });
     container.appendChild(el);
   });
@@ -378,30 +393,43 @@ function addLayer() {
   const numInput  = $('#layer-num');
   const descInput = $('#layer-desc');
   const memoInput = $('#layer-memo');
+  const condSelect = $('#layer-condition');
+  const depthTopInput = $('#layer-depth-top');
+  const depthBottomInput = $('#layer-depth-bottom');
 
-  const layer = {
-    id:        Date.now(),
-    number:    numInput?.value || (state.layers.length + 1),
-    code:      res.code,
-    hex:       res.chipHex,
-    korName:   res.korName,
-    soilClass: res.soilClass,
-    deltaE:    res.deltaE,
-    rgb:       res.rgb,
-    desc:      descInput?.value || '',
-    memo:      memoInput?.value || '',
-    lightingK: state.lightingK,
-    timestamp: new Date().toLocaleTimeString('ko-KR'),
-  };
+  const layer = FieldRecord.createLayer(Date.now());
+
+  // Set layer attributes
+  layer.number = numInput?.value || (state.layers.length + 1);
+  layer.depth_top = depthTopInput?.value ? parseFloat(depthTopInput.value) : null;
+  layer.depth_bottom = depthBottomInput?.value ? parseFloat(depthBottomInput.value) : null;
+  layer.notes = memoInput?.value || '';
+
+  // Matrix color attributes
+  layer.matrix.code = res.code;
+  layer.matrix.condition = condSelect?.value || 'moist';
+  layer.matrix.hex = res.chipHex;
+  layer.matrix.korName = res.korName;
+  layer.matrix.deltaE = res.deltaE;
+  layer.matrix.lightingK = state.lightingK;
+  layer.matrix.rgb = res.rgb;
+  layer.matrix.pipeline = res.pipeline;
+
+  // Optional color description from user
+  layer.desc = descInput?.value || '';
 
   state.layers.push(layer);
+
+  // Reset/increment form
   if (numInput) numInput.value = '';
   if (descInput) descInput.value = '';
   if (memoInput) memoInput.value = '';
+  if (depthTopInput) depthTopInput.value = '';
+  if (depthBottomInput) depthBottomInput.value = '';
 
   renderLayerList();
   updateComparisonStrip();
-  toast(`층위 ${layer.number} 추가됨: ${layer.code}`, 'success');
+  toast(`층위 ${layer.number} 추가됨: ${layer.matrix.code}`, 'success');
 
   // Auto-increment layer number
   const nextNum = parseInt(layer.number || 0) + 1;
@@ -443,15 +471,29 @@ function renderLayerList() {
   state.layers.forEach(layer => {
     const card = document.createElement('div');
     card.className = 'layer-card';
+
+    // Format depth string
+    const depthStr = (layer.depth_top !== null && layer.depth_bottom !== null)
+      ? `<span class="layer-depth">${layer.depth_top} – ${layer.depth_bottom} cm</span>`
+      : '';
+
+    // Condition label
+    const condLabel = FieldRecord.CONDITION_LABEL[layer.matrix.condition] || layer.matrix.condition;
+
     card.innerHTML = `
-      <div class="layer-swatch" style="background:${layer.hex}"></div>
+      <div class="layer-swatch" style="background:${layer.matrix.hex}"></div>
       <div class="layer-info">
-        <div class="layer-number">층위 ${layer.number}</div>
-        <div class="layer-munsell">${layer.code}</div>
-        <div class="layer-desc">${layer.korName}${layer.desc ? ' — ' + layer.desc : ''}</div>
+        <div style="display:flex; justify-content:space-between; align-items:baseline">
+          <div class="layer-number">층위 ${layer.number}</div>
+          ${depthStr}
+        </div>
+        <div class="layer-munsell">${layer.matrix.code} <span style="font-size:0.7rem; color:var(--text-muted)">(${condLabel})</span></div>
+        <div class="layer-desc">
+          <strong>${layer.matrix.korName}</strong>${layer.desc ? ' (' + layer.desc + ')' : ''}
+          ${layer.notes ? `<div class="layer-notes-memo">📝 ${layer.notes}</div>` : ''}
+        </div>
         <div class="layer-meta">
-          ΔE ${layer.deltaE} &nbsp;·&nbsp; ${layer.lightingK}K &nbsp;·&nbsp; ${layer.timestamp}
-          ${layer.memo ? `<br><em>${layer.memo}</em>` : ''}
+          ΔE ${layer.matrix.deltaE.toFixed(1)} &nbsp;·&nbsp; ${layer.matrix.lightingK}K &nbsp;·&nbsp; ${layer.timestamp}
         </div>
       </div>
       <div class="layer-actions">
@@ -469,8 +511,8 @@ function updateComparisonStrip() {
   state.layers.forEach(l => {
     const seg = document.createElement('div');
     seg.className = 'comparison-segment';
-    seg.style.background = l.hex;
-    seg.dataset.label = `${l.number}: ${l.code}`;
+    seg.style.background = l.matrix.hex;
+    seg.dataset.label = `${l.number}: ${l.matrix.code}`;
     strip.appendChild(seg);
   });
 }
@@ -489,32 +531,15 @@ function setupExport() {
 
 function exportCSV() {
   if (state.layers.length === 0) { toast('기록된 층위가 없습니다', 'error'); return; }
-
-  const header = ['층위번호', '먼셀코드', 'Hue', 'Value', 'Chroma',
-                   'R', 'G', 'B', 'HEX', '한국어명', '토색분류', '조명(K)',
-                   '설명', '메모', '시간', 'ΔE'].join(',');
-  const rows = state.layers.map(l => {
-    const p = converter._parseCode(l.code);
-    return [
-      l.number, l.code, p.hue, p.value, p.chroma,
-      l.rgb.r, l.rgb.g, l.rgb.b, l.hex,
-      `"${l.korName}"`, `"${l.soilClass.label}"`, l.lightingK,
-      `"${l.desc}"`, `"${l.memo}"`, l.timestamp, l.deltaE
-    ].join(',');
-  });
-
-  download('munsell_layers.csv', [header, ...rows].join('\n'), 'text/csv');
+  const csv = FieldRecord.toCSVRows(state.layers);
+  download('munsell_layers.csv', csv, 'text/csv');
   toast('CSV 내보내기 완료', 'success');
 }
 
 function exportJSON() {
   if (state.layers.length === 0) { toast('기록된 층위가 없습니다', 'error'); return; }
-  const data = {
-    exported: new Date().toISOString(),
-    lightingK: state.lightingK,
-    layers: state.layers,
-  };
-  download('munsell_layers.json', JSON.stringify(data, null, 2), 'application/json');
+  const json = FieldRecord.toJSON(state.layers, { site: '고고학 조사' });
+  download('munsell_layers.json', json, 'application/json');
   toast('JSON 내보내기 완료', 'success');
 }
 

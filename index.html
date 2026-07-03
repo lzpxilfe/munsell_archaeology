@@ -213,6 +213,18 @@
           <input id="layer-desc" class="form-input" type="text" placeholder="색 설명 (선택)">
         </div>
         <div class="form-row">
+          <label>토양 상태</label>
+          <select id="layer-condition" class="form-input" style="flex:1">
+            <option value="moist" selected>습윤 (Moist)</option>
+            <option value="dry">건조 (Dry)</option>
+            <option value="wet">포화 (Wet)</option>
+          </select>
+          <label style="margin-left:8px;flex:none">깊이(cm)</label>
+          <input id="layer-depth-top" class="form-input" type="number" placeholder="상" style="width:50px;flex:none">
+          <span style="align-self:center;margin:0 2px;color:var(--text-muted)">–</span>
+          <input id="layer-depth-bottom" class="form-input" type="number" placeholder="하" style="width:50px;flex:none">
+        </div>
+        <div class="form-row">
           <label>메모</label>
           <input id="layer-memo" class="form-input" type="text" placeholder="다짐 정도, 포함물 등">
         </div>
@@ -309,8 +321,12 @@
 </style>
 
 <!-- Scripts -->
-<script src="js/colorTemp.js"></script>
-<script src="js/munsellConverter.js"></script>
+<script src="js/illuminant.js"></script>
+<script src="js/chromAdapt.js"></script>
+<script src="js/nearestChip.js"></script>
+<script src="js/chipDatabase.js"></script>
+<script src="js/munsellConvert.js"></script>
+<script src="js/fieldRecord.js"></script>
 <script src="js/colorPicker.js"></script>
 <script src="js/app.js"></script>
 
