@@ -22,7 +22,14 @@
     .pipeline-detail { font-size: 0.65rem; color: #666; line-height: 1.6; }
   </style>
 
-  <script src="https://cdn.jsdelivr.net/npm/munsell@latest/dist/munsell.min.js"></script>
+  <script type="module">
+    try {
+      window.munsell = await import('https://cdn.jsdelivr.net/npm/munsell@1.1.6/+esm');
+    } catch (e) {
+      console.warn('[munsell] CDN 로드 실패:', e);
+      window.munsell = {};  // waitLib 무한 대기 방지 — LUT 전용으로 진행
+    }
+  </script>
   <script src="../js/illuminant.js"></script>
   <script src="../js/chromAdapt.js"></script>
   <script src="../js/nearestChip.js"></script>

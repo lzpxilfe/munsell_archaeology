@@ -6,8 +6,14 @@
   <title>먼셀 토색 판별기 — Munsell Soil Color Analyzer</title>
   <meta name="description" content="고고학 토층 조사용 먼셀 색체계 판별 도구. 이미지 스포이드로 색을 채취하고 먼셀 코드로 변환합니다.">
 
-  <!-- munsell.js via CDN (privet-kitty/munsell) -->
-  <script src="https://cdn.jsdelivr.net/npm/munsell@latest/dist/munsell.min.js"></script>
+  <!-- munsell.js via CDN (privet-kitty/munsell) — ESM 번들을 전역에 노출 (UMD 빌드 없음) -->
+  <script type="module">
+    try {
+      window.munsell = await import('https://cdn.jsdelivr.net/npm/munsell@1.1.6/+esm');
+    } catch (e) {
+      console.warn('[munsell] CDN 로드 실패 — LUT 폴백으로 동작합니다:', e);
+    }
+  </script>
 
   <link rel="stylesheet" href="css/style.css">
 </head>
