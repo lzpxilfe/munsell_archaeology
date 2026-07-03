@@ -1,17 +1,9 @@
-<div align="center">
-
-# 🏺 먼셀 토색 판별기
+# 🏺 먼셀 토색 판별기 (Munsell Kit)
 ### Munsell Soil Color Analyzer for Archaeology
 
-**고고학 토층 조사에서 고가의 토색첩 없이 디지털로 먼셀 색을 판별하는 도구**
+고고학 토층 조사용 먼셀(Munsell) 색 체계 판별 도구 및 분석 라이브러리입니다.  
+발굴 현장에서 고가의 먼셀 토색첩 없이 디지털 이미지로부터 정교하게 먼셀 색을 판별하고 기록하기 위한 핵심 엔진 세트를 제공합니다.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![HTML](https://img.shields.io/badge/HTML-단일파일-orange.svg)]()
-[![No Install](https://img.shields.io/badge/설치-불필요-blue.svg)]()
-
-[🌐 온라인 데모](https://lzpxilfe.github.io/munsell_archaeology/) · [📖 사용법](#-사용법) · [🔧 API 참조](#-다른-프로젝트에서-참조하기)
-
-</div>
 
 ---
 
@@ -43,8 +35,6 @@ start index.html          # Windows
 open index.html           # macOS
 xdg-open index.html       # Linux
 ```
-
-또는 [온라인 데모](https://lzpxilfe.github.io/munsell_archaeology/)에서 바로 사용하세요.
 
 ---
 
