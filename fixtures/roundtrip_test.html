@@ -22,7 +22,7 @@
     .pipeline-detail { font-size: 0.65rem; color: #666; line-height: 1.6; }
   </style>
 
-  <script src="https://cdn.jsdelivr.net/npm/munsell@latest/dist/munsell.min.js"></script>
+  <script src="../js/vendor/munsell.min.js"></script>
   <script src="../js/illuminant.js"></script>
   <script src="../js/chromAdapt.js"></script>
   <script src="../js/nearestChip.js"></script>
@@ -49,17 +49,26 @@ async function runTests() {
   const res = await fetch('known_chips.json').catch(() => null);
   const fixtures = res ? (await res.json()).filter(f => f.munsell) : [];
 
-  // 추가 테스트 케이스 (DB에서 직접)
-  const dbTests = [
-    { desc: 'N 5/ — 중성 회색',        munsell: 'N 5/',         sRGB: [127, 127, 127] },
-    { desc: '10YR 4/3 — 갈색토',        munsell: '10YR 4/3',     sRGB: [116, 88, 52]  },
-    { desc: '10YR 3/2 — 암갈색토',      munsell: '10YR 3/2',     sRGB: [80, 62, 40]   },
-    { desc: '7.5YR 4/4 — 갈색 (7.5YR)', munsell: '7.5YR 4/4',    sRGB: [132, 81, 50]  },
-    { desc: '5YR 4/4 — 적갈색토',       munsell: '5YR 4/4',      sRGB: [146, 72, 46]  },
-    { desc: '2.5Y 6/4 — 황갈색',        munsell: '2.5Y 6/4',     sRGB: [174, 148, 92] },
-    { desc: '5Y 5/2 — 회황색',          munsell: '5Y 5/2',       sRGB: [132, 126, 90] },
-    { desc: '10YR 6/4 — 황갈색',        munsell: '10YR 6/4',     sRGB: [178, 140, 88] },
+  // 추가 테스트 케이스 — 입력 sRGB는 munsell.js가 계산한 정답값을 사용
+  // (하드코딩 값은 라이브러리 로드 실패 시 폴백)
+  const dbTestDefs = [
+    { desc: 'N 5/ — 중성 회색',        munsell: 'N 5/',         fallback: [121, 121, 121] },
+    { desc: '10YR 4/3 — 갈색토',        munsell: '10YR 4/3',     fallback: [115, 92, 64]  },
+    { desc: '10YR 3/2 — 암갈색토',      munsell: '10YR 3/2',     fallback: [84, 69, 53]   },
+    { desc: '7.5YR 4/4 — 갈색 (7.5YR)', munsell: '7.5YR 4/4',    fallback: [124, 89, 58]  },
+    { desc: '5YR 4/4 — 적갈색토',       munsell: '5YR 4/4',      fallback: [127, 87, 63]  },
+    { desc: '2.5Y 6/4 — 황갈색',        munsell: '2.5Y 6/4',     fallback: [168, 145, 99] },
+    { desc: '5Y 5/2 — 회황색',          munsell: '5Y 5/2',       fallback: [129, 121, 97] },
+    { desc: '10YR 6/4 — 황갈색',        munsell: '10YR 6/4',     fallback: [172, 143, 103] },
   ];
+  const dbTests = dbTestDefs.map(t => {
+    let sRGB = t.fallback;
+    try {
+      sRGB = munsell.munsellToRgb255(t.munsell)
+        .map(v => Math.max(0, Math.min(255, Math.round(v))));
+    } catch (e) {}
+    return { desc: t.desc, munsell: t.munsell, sRGB };
+  });
 
   const allTests = [...dbTests, ...fixtures.map(f => ({
     desc:    f.desc,

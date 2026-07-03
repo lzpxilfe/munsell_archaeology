@@ -49,10 +49,10 @@ class MunsellConvert {
     const hex  = this._toHex(r, g, b);
     const pipe = this._sRGBtoPipeline(r, g, b);
 
-    // 1차: munsell.js (xyY → Munsell, 보간 포함)
+    // 1차: munsell.js (XYZ_C → Munsell, 보간 포함)
     let code, fromLib;
     if (this.libReady) {
-      const result = this._libConvert(pipe.xyY_C);
+      const result = this._libConvert(pipe);
       if (result) { code = result; fromLib = true; }
     }
 
@@ -167,42 +167,29 @@ class MunsellConvert {
   }
 
   _detectLibAPI() {
-    // munsell.js의 실제 API를 탐지
-    const exports = Object.keys(munsell);
+    // munsell.js v1.1.x API (privet-kitty/munsell.js)
     this._libFns = {
-      toRgb255:   typeof munsell.munsellToRgb255 === 'function',
-      toXYZ:      typeof munsell.munsellToXyz === 'function',
-      xyYToCode:  typeof munsell.xyYToMunsell === 'function',
+      toRgb255:  typeof munsell.munsellToRgb255 === 'function',
+      xyzToCode: typeof munsell.xyzToMunsell === 'function',
+      illC:      typeof munsell.ILLUMINANT_C !== 'undefined',
     };
-    console.info('[MunsellConvert] munsell.js exports:', exports.slice(0, 10));
     console.info('[MunsellConvert] 사용 가능한 함수:', this._libFns);
   }
 
   /**
-   * xyY_C → 먼셀 코드 (munsell.js 경유)
-   * munsell.js는 내부적으로 Illuminant C xyY 공간에서 동작
+   * XYZ_C → 먼셀 코드 (munsell.js 경유)
+   * xyzToMunsell(X, Y, Z, illuminant)에 Illuminant C를 명시해
+   * 라이브러리가 내부에서 재적응하지 않도록 한다.
    */
-  _libConvert(xyY_C) {
+  _libConvert(pipe) {
     try {
-      // xyY_C를 munsell.js의 기대 형식으로 전달
-      // 라이브러리 버전에 따라 API 다름 — 여러 시도
-      const { x, y, Y } = xyY_C;
-
-      if (this._libFns?.xyYToCode) {
-        // privet-kitty/munsell: xyYToMunsell 또는 유사 함수
-        const result = munsell.xyYToMunsell(x, y, Y);
-        if (result) return typeof result === 'string' ? result : result.code;
-      }
-
-      // 일부 버전: munsell 네임스페이스의 다른 진입점 시도
-      if (typeof munsell.xyYToMunsellHVC === 'function') {
-        const hvc = munsell.xyYToMunsellHVC(x, y, Y);
-        if (hvc) return `${hvc.hue} ${hvc.value}/${hvc.chroma}`;
-      }
-
-      return null;  // 폴백으로 LUT 사용
+      if (!this._libFns?.xyzToCode) return null;
+      const { X, Y, Z } = pipe.xyz_C;
+      const illC = this._libFns.illC ? munsell.ILLUMINANT_C : undefined;
+      const result = munsell.xyzToMunsell(X, Y, Z, illC);
+      return typeof result === 'string' ? result : null;
     } catch (e) {
-      return null;
+      return null;  // 폴백으로 LUT 사용
     }
   }
 

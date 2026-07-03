@@ -1,178 +1,297 @@
 /**
  * colorPicker.js
  * ─────────────────────────────────────────────────────────────────────
- * Canvas 기반 스포이드 — 돋보기 + 다중 픽셀 샘플링 + 색온도 보정 통합
+ * Canvas 스포이드 + 도구 라우팅 (ImageView 기반)
+ *
+ * 변경점 (v2):
+ *   - 표시 캔버스가 아닌 ImageView의 풀해상도 보정본에서 샘플링
+ *     → 축소·보간에 의한 왜곡 없음, 1px/3×3 샘플이 진짜 원본 픽셀 단위
+ *   - 휠 줌(커서 기준) + 팬(Space+드래그 / 휠버튼 드래그 / 팬 도구)
+ *   - 도구 핸들러 등록 구조: regionSelect(사각형/올가미), 그레이카드 등
+ *     외부 도구가 registerTool()로 끼어들 수 있음
+ *   - onPick 콜백에 보정된 색과 보정 전(raw) 색을 함께 전달
+ *     (이중 보정 버그 수정: 호출부에서 재보정 금지)
  * ─────────────────────────────────────────────────────────────────────
  */
 
 class ColorPicker {
   constructor(canvas, magnifier, magnifierCanvas, onPick) {
-    this.canvas  = canvas;
-    this.ctx     = canvas.getContext('2d', { willReadFrequently: true });
-    this.magnifier    = magnifier;
-    this.magCanvas    = magnifierCanvas;
-    this.magCtx       = magnifierCanvas.getContext('2d', { willReadFrequently: true });
-    this.onPick       = onPick;
+    this.canvas = canvas;
+    this.view   = new ImageView(canvas);
+    this.magnifier = magnifier;
+    this.magCanvas = magnifierCanvas;
+    this.magCtx    = magnifierCanvas.getContext('2d', { willReadFrequently: true });
+    this.onPick    = onPick;
 
-    this.img          = null;
     this.sampleRadius = 1;    // 1=1px, 2=3×3, 3=5×5, 4=7×7
-    this.lightingK    = 6504;
-    this.tempCorrector = null;
+    this.tool = 'pick';       // 'pick' | 'pan' | (외부 등록: 'rect', 'lasso', 'graycard' …)
+    this._tools = {};         // name → { down, move, up, draw, cursor }
 
-    // Cached corrected image for display
-    this._correctedBitmap = null;
-    this._correcting = false;
-
-    // Canvas-to-image mapping
-    this.scale   = 1;
-    this.offsetX = 0;
-    this.offsetY = 0;
+    this._panning  = false;
+    this._spaceDown = false;
+    this._lastPan  = null;
 
     this._bind();
   }
 
-  _bind() {
-    this.canvas.addEventListener('mousemove',  e => this._onMove(e));
-    this.canvas.addEventListener('mouseleave', e => this._onLeave(e));
-    this.canvas.addEventListener('click',      e => this._onClick(e));
-    this.canvas.addEventListener('touchstart', e => this._onTouch(e), { passive: false });
-  }
-
   // ─── Public ───────────────────────────────────────────────────────
 
-  setImage(img, lightingK, tempCorrector) {
-    this.img = img;
-    this.lightingK    = lightingK || 6504;
-    this.tempCorrector = tempCorrector || null;
-    this._correctedBitmap = null;
-    this._render();
-    this._applyCorrection();
+  /**
+   * 이미지 로드 + 보정 적용
+   * @param {HTMLImageElement} img
+   * @param {(imageData) => imageData | null} correctFn  조명 보정 함수
+   * @returns {{ downscaled: boolean }}
+   */
+  setImage(img, correctFn) {
+    this._syncCanvasSize();
+    const info = this.view.load(img);
+    this.view.applyCorrection(correctFn);
+    this.view.render();
+    this._updateStatus();
+    return info;
   }
 
-  setLightingK(K, tempCorrector) {
-    this.lightingK    = K;
-    this.tempCorrector = tempCorrector;
-    this._correctedBitmap = null;
-    if (this.img) {
-      this._render();
-      this._applyCorrection();
-    }
+  /** 조명 보정 변경 (correctFn=null이면 보정 없음) */
+  setCorrection(correctFn) {
+    if (!this.view.hasImage) return;
+    this.view.applyCorrection(correctFn);
+    this.view.render();
   }
 
   setSampleRadius(r) { this.sampleRadius = r; }
 
-  resize() { if (this.img) this._render(); }
+  setTool(name) {
+    this.tool = name;
+    this._applyCursor();
+  }
 
-  // ─── Rendering ────────────────────────────────────────────────────
+  /**
+   * 외부 도구 등록
+   * @param {string} name
+   * @param {{ down?, move?, up?, draw?, cursor? }} handler
+   *   down/move/up: (pos, e) => void — pos = { cx, cy, ix, iy }
+   *   draw: (ctx, view) => void — 매 렌더 후 오버레이
+   */
+  registerTool(name, handler) {
+    this._tools[name] = handler;
+    if (handler.draw) this.view.overlays.push((ctx, view) => {
+      if (this.tool === name || handler.always) handler.draw(ctx, view);
+    });
+  }
 
-  _render() {
+  /** 마커 등 상시 오버레이 등록 */
+  addOverlay(draw) { this.view.overlays.push(draw); }
+
+  resize() {
+    if (!this.view.hasImage) return;
+    this.view.resize();
+  }
+
+  render() { this.view.render(); }
+
+  get hasImage() { return this.view.hasImage; }
+
+  /** 현재 샘플 크기 (px) */
+  get sampleSize() {
+    const r = this.sampleRadius;
+    return r === 1 ? 1 : (r * 2 - 1);   // 1,3,5,7
+  }
+
+  /** (이미지 좌표) 보정본/원본 동시 샘플 */
+  samplePair(ix, iy) {
+    const size = this.sampleSize;
+    const color = this.view.sampleAt(ix, iy, size);
+    const raw   = this.view.sampleRawAt(ix, iy, size);
+    return color ? { ...color, raw } : null;
+  }
+
+  // ─── 내부: 이벤트 ─────────────────────────────────────────────────
+
+  _bind() {
+    const c = this.canvas;
+    c.addEventListener('mousemove',  e => this._onMove(e));
+    c.addEventListener('mouseleave', () => this._onLeave());
+    c.addEventListener('mousedown',  e => this._onDown(e));
+    window.addEventListener('mouseup', e => this._onUp(e));
+    c.addEventListener('wheel',      e => this._onWheel(e), { passive: false });
+    c.addEventListener('touchstart', e => this._onTouch(e), { passive: false });
+    c.addEventListener('contextmenu', e => e.preventDefault());
+
+    window.addEventListener('keydown', e => {
+      if (e.code === 'Space' && !this._isTyping(e)) {
+        this._spaceDown = true;
+        this._applyCursor();
+        e.preventDefault();
+      }
+    });
+    window.addEventListener('keyup', e => {
+      if (e.code === 'Space') {
+        this._spaceDown = false;
+        this._panning = false;
+        this._applyCursor();
+      }
+    });
+  }
+
+  _isTyping(e) {
+    const t = e.target;
+    return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT');
+  }
+
+  _pos(e) {
+    const rect = this.canvas.getBoundingClientRect();
+    const cx = (e.clientX - rect.left) * (this.canvas.width  / rect.width);
+    const cy = (e.clientY - rect.top)  * (this.canvas.height / rect.height);
+    const { ix, iy } = this.view.canvasToImage(cx, cy);
+    return { cx, cy, ix, iy };
+  }
+
+  _panActive(e) {
+    return this.tool === 'pan' || this._spaceDown || (e && e.button === 1);
+  }
+
+  _onDown(e) {
+    if (!this.view.hasImage) return;
+    const pos = this._pos(e);
+
+    if (this._panActive(e)) {
+      this._panning = true;
+      this._lastPan = { x: pos.cx, y: pos.cy };
+      e.preventDefault();
+      return;
+    }
+
+    const handler = this._tools[this.tool];
+    if (handler?.down) { handler.down(pos, e); return; }
+  }
+
+  _onMove(e) {
+    if (!this.view.hasImage) return;
+    const pos = this._pos(e);
+
+    if (this._panning) {
+      this.view.panBy(pos.cx - this._lastPan.x, pos.cy - this._lastPan.y);
+      this._lastPan = { x: pos.cx, y: pos.cy };
+      this.view.render();
+      return;
+    }
+
+    const handler = this._tools[this.tool];
+    if (handler?.move) {
+      handler.move(pos, e);
+      return;
+    }
+
+    // 기본(스포이드) 호버: 샘플 박스 + 돋보기 + 미리보기
+    this.view.render();
+    if (this.tool === 'pick' && this.view.inImage(pos.ix, pos.iy)) {
+      this._drawSampleBox(pos);
+      this._updateMagnifier(e, pos);
+      this._updateHoverPreview(pos);
+    } else {
+      this._hideMagnifier();
+    }
+  }
+
+  _onUp(e) {
+    if (this._panning) { this._panning = false; return; }
+    if (!this.view.hasImage) return;
+
+    const handler = this._tools[this.tool];
+    if (handler?.up) {
+      // mouseup은 window에서 오므로 캔버스 좌표로 재계산
+      handler.up(this._pos(e), e);
+      return;
+    }
+
+    // 기본 스포이드: 클릭 픽
+    if (this.tool === 'pick' && e.target === this.canvas && e.button === 0) {
+      const pos = this._pos(e);
+      if (!this.view.inImage(pos.ix, pos.iy)) return;
+      const color = this.samplePair(pos.ix, pos.iy);
+      if (color) {
+        this.onPick(color);
+        this._showPickIndicator(pos.cx, pos.cy);
+      }
+    }
+  }
+
+  _onWheel(e) {
+    if (!this.view.hasImage) return;
+    e.preventDefault();
+    const pos = this._pos(e);
+    this.view.zoomAt(pos.cx, pos.cy, e.deltaY < 0 ? 1.25 : 0.8);
+    this.view.render();
+    this._updateStatus();
+  }
+
+  _onTouch(e) {
+    e.preventDefault();
+    if (!this.view.hasImage) return;
+    const t = e.touches[0];
+    const pos = this._pos({ clientX: t.clientX, clientY: t.clientY });
+    if (this.tool === 'pick' && this.view.inImage(pos.ix, pos.iy)) {
+      const color = this.samplePair(pos.ix, pos.iy);
+      if (color) {
+        this.onPick(color);
+        this._showPickIndicator(pos.cx, pos.cy);
+      }
+    }
+  }
+
+  _onLeave() {
+    this._hideMagnifier();
+    if (this.view.hasImage) this.view.render();
+  }
+
+  // ─── 내부: 표시 ───────────────────────────────────────────────────
+
+  _syncCanvasSize() {
     const canvas = this.canvas;
     const pw = canvas.parentElement?.offsetWidth  || canvas.offsetWidth;
     const ph = canvas.parentElement?.offsetHeight || canvas.offsetHeight;
     canvas.width  = pw;
     canvas.height = ph;
-
-    if (!this.img) return;
-
-    const iw = this.img.naturalWidth;
-    const ih = this.img.naturalHeight;
-    this.scale   = Math.min(pw / iw, ph / ih);
-    const rw = iw * this.scale;
-    const rh = ih * this.scale;
-    this.offsetX = (pw - rw) / 2;
-    this.offsetY = (ph - rh) / 2;
-
-    if (this._correctedBitmap) {
-      this.ctx.clearRect(0, 0, pw, ph);
-      this.ctx.drawImage(this._correctedBitmap, this.offsetX, this.offsetY, rw, rh);
-    } else {
-      this.ctx.clearRect(0, 0, pw, ph);
-      this.ctx.drawImage(this.img, this.offsetX, this.offsetY, rw, rh);
-    }
   }
 
-  async _applyCorrection() {
-    if (!this.img || !this.tempCorrector || Math.abs(this.lightingK - 6504) < 50) {
-      this._correctedBitmap = null;
-      this._render();
-      return;
-    }
-
-    if (this._correcting) return;
-    this._correcting = true;
-
-    // Draw original to offscreen canvas, read pixel data, correct, write back
-    const off = document.createElement('canvas');
-    off.width  = this.img.naturalWidth;
-    off.height = this.img.naturalHeight;
-    const octx = off.getContext('2d', { willReadFrequently: true });
-    octx.drawImage(this.img, 0, 0);
-
-    const imageData = octx.getImageData(0, 0, off.width, off.height);
-
-    // Run in "chunks" to avoid UI freeze on large images
-    const corrected = await this._correctAsync(imageData, this.lightingK);
-    octx.putImageData(corrected, 0, 0);
-
-    // Create ImageBitmap for fast drawImage
-    this._correctedBitmap = await createImageBitmap(off);
-    this._correcting = false;
-    this._render();
+  _applyCursor() {
+    const t = this._tools[this.tool];
+    this.canvas.style.cursor =
+      (this._spaceDown || this.tool === 'pan') ? 'grab'
+      : (t?.cursor || 'crosshair');
   }
 
-  _correctAsync(imageData, K) {
-    return new Promise(resolve => {
-      // Run correction off the main thread using setTimeout chunking
-      const corrected = this.tempCorrector.correctImageDataForField(imageData, K);
-      resolve(corrected);
-    });
+  /** 이미지 픽셀에 정렬된 샘플 박스 */
+  _drawSampleBox(pos) {
+    const size = this.sampleSize;
+    const half = Math.floor(size / 2);
+    const x0 = Math.round(pos.ix) - half;
+    const y0 = Math.round(pos.iy) - half;
+    const p  = this.view.imageToCanvas(x0, y0);
+    const s  = size * this.view.scale;
+
+    const ctx = this.view.ctx;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.shadowColor = 'rgba(0,0,0,0.8)';
+    ctx.shadowBlur  = 2;
+    ctx.lineWidth   = 1;
+    ctx.strokeRect(p.cx - 0.5, p.cy - 0.5, Math.max(s, 3), Math.max(s, 3));
+    ctx.restore();
   }
 
-  // ─── Sampling ─────────────────────────────────────────────────────
-
-  _canvasCoords(e) {
-    const rect = this.canvas.getBoundingClientRect();
-    return {
-      cx: (e.clientX - rect.left) * (this.canvas.width  / rect.width),
-      cy: (e.clientY - rect.top)  * (this.canvas.height / rect.height),
-    };
-  }
-
-  _sampleColor(cx, cy) {
-    const r    = this.sampleRadius;
-    const size = r === 1 ? 1 : (r * 2 - 1);  // 1,3,5,7
-    const sx   = Math.max(0, Math.round(cx) - Math.floor(size / 2));
-    const sy   = Math.max(0, Math.round(cy) - Math.floor(size / 2));
-
-    // Read from corrected canvas (already has color temp applied)
-    const data = this.ctx.getImageData(sx, sy, size, size).data;
-
-    let rSum = 0, gSum = 0, bSum = 0, count = 0;
-    for (let i = 0; i < data.length; i += 4) {
-      rSum += data[i]; gSum += data[i+1]; bSum += data[i+2]; count++;
-    }
-    if (!count) return null;
-
-    return {
-      r: Math.round(rSum / count),
-      g: Math.round(gSum / count),
-      b: Math.round(bSum / count),
-    };
-  }
-
-  // ─── Magnifier ────────────────────────────────────────────────────
-
-  _updateMagnifier(e, cx, cy) {
+  _updateMagnifier(e, pos) {
     const mag = this.magnifier;
     if (!mag) return;
     mag.style.display = 'block';
     mag.style.left    = e.clientX + 'px';
     mag.style.top     = e.clientY + 'px';
 
+    // 이미지 좌표계에서 15×15px 창을 소스 캔버스(보정본)에서 확대
     const srcSize = 15;
     const half    = Math.floor(srcSize / 2);
-    const srcX    = Math.max(0, Math.round(cx) - half);
-    const srcY    = Math.max(0, Math.round(cy) - half);
+    const srcX    = Math.max(0, Math.round(pos.ix) - half);
+    const srcY    = Math.max(0, Math.round(pos.iy) - half);
     const mw = this.magCanvas.offsetWidth  || 120;
     const mh = this.magCanvas.offsetHeight || 120;
     this.magCanvas.width  = mw;
@@ -180,73 +299,32 @@ class ColorPicker {
 
     this.magCtx.imageSmoothingEnabled = false;
     this.magCtx.clearRect(0, 0, mw, mh);
-    this.magCtx.drawImage(this.canvas, srcX, srcY, srcSize, srcSize, 0, 0, mw, mh);
+    this.magCtx.drawImage(this.view.sourceCanvas, srcX, srcY, srcSize, srcSize, 0, 0, mw, mh);
   }
 
-  _drawSampleBox(cx, cy) {
-    const r    = this.sampleRadius;
-    const size = r === 1 ? 1 : (r * 2 - 1);
-    const sx   = Math.round(cx) - Math.floor(size / 2) - 0.5;
-    const sy   = Math.round(cy) - Math.floor(size / 2) - 0.5;
-
-    this.ctx.save();
-    this.ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-    this.ctx.shadowColor = 'rgba(0,0,0,0.8)';
-    this.ctx.shadowBlur  = 2;
-    this.ctx.lineWidth   = 1;
-    this.ctx.strokeRect(sx, sy, size, size);
-    this.ctx.restore();
-  }
-
-  // ─── Events ───────────────────────────────────────────────────────
-
-  _onMove(e) {
-    if (!this.img) return;
-    const { cx, cy } = this._canvasCoords(e);
-    this._render();
-    this._drawSampleBox(cx, cy);
-    this._updateMagnifier(e, cx, cy);
-
-    // Live preview color
-    const color = this._sampleColor(cx, cy);
-    if (color) {
-      const hex = '#' + [color.r, color.g, color.b]
-        .map(v => v.toString(16).padStart(2,'0')).join('');
-      const preview = document.getElementById('hover-preview');
-      if (preview) {
-        preview.style.background = hex;
-        preview.title = hex;
-      }
-    }
-  }
-
-  _onLeave() {
+  _hideMagnifier() {
     if (this.magnifier) this.magnifier.style.display = 'none';
-    if (this.img) this._render();
   }
 
-  _onClick(e) {
-    if (!this.img) return;
-    const { cx, cy } = this._canvasCoords(e);
-
-    // Only pick if within image bounds
-    const iw = this.img.naturalWidth * this.scale;
-    const ih = this.img.naturalHeight * this.scale;
-    if (cx < this.offsetX || cx > this.offsetX + iw ||
-        cy < this.offsetY || cy > this.offsetY + ih) return;
-
-    const color = this._sampleColor(cx, cy);
-    if (color) {
-      this.onPick(color);
-      this._showPickIndicator(cx, cy);
+  _updateHoverPreview(pos) {
+    const color = this.view.sampleAt(pos.ix, pos.iy, this.sampleSize);
+    if (!color) return;
+    const hex = '#' + [color.r, color.g, color.b]
+      .map(v => v.toString(16).padStart(2, '0')).join('');
+    const preview = document.getElementById('hover-preview');
+    if (preview) {
+      preview.style.background = hex;
+      preview.title = hex;
     }
   }
 
-  _onTouch(e) {
-    e.preventDefault();
-    const t = e.touches[0];
-    this._onClick({ clientX: t.clientX, clientY: t.clientY,
-                    getBoundingClientRect: () => ({}) });
+  _updateStatus() {
+    const el = document.getElementById('canvas-status');
+    if (!el) return;
+    const z = Math.round(this.view.zoomFactor * 100);
+    el.textContent = z > 100
+      ? `줌 ${z}% — Space+드래그로 이동, 휠로 줌`
+      : '클릭: 색 채취 · 휠: 줌 · Space+드래그: 이동';
   }
 
   _showPickIndicator(cx, cy) {

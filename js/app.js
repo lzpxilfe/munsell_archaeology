@@ -8,10 +8,20 @@ const state = {
   currentResult: null,
   samplingMode: 1,  // 1=1px, 2=3×3, 3=5×5, 4=7×7
   lightingK: 6504,  // D65 default
-  correctedDataCache: null,
   layers: [],
   theme: localStorage.getItem('munsell-theme') || 'dark',
 };
+
+/**
+ * 현재 조명 설정에 따른 이미지 보정 함수 (null = 보정 없음)
+ * 픽셀 샘플은 항상 "보정된" 이미지에서 읽으므로, 픽 결과에
+ * 추가 보정을 하면 안 된다 (이중 보정 금지).
+ */
+function currentCorrectFn() {
+  if (Math.abs(state.lightingK - 6504) < 50) return null;
+  const K = state.lightingK;
+  return (imageData) => ChromAdapt.correctImageDataForField(imageData, K);
+}
 
 // ─── Preset Lighting Descriptions ─────────────────────────────────────
 const LIGHTING_PRESETS = {
@@ -130,13 +140,18 @@ function loadImageFile(file) {
   const img = new Image();
   img.onload = () => {
     state.image = img;
-    state.correctedDataCache = null;
     showCanvas();
-    picker.setImage(img, state.lightingK, ChromAdapt);
+    const { downscaled } = picker.setImage(img, currentCorrectFn());
+    if (downscaled) {
+      toast('큰 사진이라 분석용 해상도로 축소했습니다 (색 정확도에는 영향 없음)', 'info');
+    }
 
     // Show image info
     const info = $('#image-info');
-    if (info) info.textContent = `${img.naturalWidth} × ${img.naturalHeight}px`;
+    if (info) {
+      info.textContent = `${img.naturalWidth} × ${img.naturalHeight}px`
+        + (downscaled ? ` → ${picker.view.imgWidth} × ${picker.view.imgHeight}px` : '');
+    }
     URL.revokeObjectURL(url);
   };
   img.src = url;
@@ -153,7 +168,6 @@ function showCanvas() {
 
 function clearImage() {
   state.image = null;
-  state.correctedDataCache = null;
   const zone = $('#upload-zone');
   const wrap = $('#canvas-wrapper');
   if (zone) zone.style.display = '';
@@ -194,11 +208,10 @@ function setupLightingControls() {
 
 function setLighting(K) {
   state.lightingK = K;
-  state.correctedDataCache = null;
 
-  // Update picker with new correction (ChromAdapt used directly)
+  // 보정본 갱신 (샘플링·표시 모두 이 보정본 기준)
   if (state.image && picker) {
-    picker.setLightingK(K, ChromAdapt);
+    picker.setCorrection(currentCorrectFn());
   }
 
   // Update display
@@ -223,14 +236,14 @@ function setupSamplingControls() {
 }
 
 // ─── Color Pick Handler ───────────────────────────────────────────────
-function handleColorPick({ r, g, b }) {
-  // Apply CAT02 chromatic adaptation from field lighting K to D65
-  const corrected = ChromAdapt.correctPixelForField(r, g, b, state.lightingK);
-  const { r: rc, g: gc, b: bc } = corrected;
-
-  // Run Munsell analysis
-  const result = converter.analyze(rc, gc, bc);
-  result.rawRgb = { r, g, b };  // store original for display
+/**
+ * @param {{r,g,b, raw?}} color
+ *   캔버스 픽: 이미 조명 보정된 값 + raw(보정 전) — 재보정하지 않는다.
+ *   화면 스포이드/참조 칩: 화면 표시색 그대로 (촬영 조명 보정 개념 없음).
+ */
+function handleColorPick({ r, g, b, raw }) {
+  const result = converter.analyze(r, g, b);
+  result.rawRgb = raw || null;   // 보정 전 원본 픽셀 (표시용)
 
   state.currentResult = result;
   renderResult(result);
@@ -277,8 +290,10 @@ function renderResult(res) {
   setEl('val-b',   res.rgb.b);
   setEl('val-hex', res.hex.toUpperCase());
 
-  // Raw (uncorrected) RGB
-  if (res.rawRgb && Math.abs(state.lightingK - 6504) > 100) {
+  // Raw (uncorrected) RGB — 보정 전후가 다를 때만 표시
+  const rawDiffers = res.rawRgb &&
+    (res.rawRgb.r !== res.rgb.r || res.rawRgb.g !== res.rgb.g || res.rawRgb.b !== res.rgb.b);
+  if (rawDiffers) {
     setEl('val-raw-r', res.rawRgb.r);
     setEl('val-raw-g', res.rawRgb.g);
     setEl('val-raw-b', res.rawRgb.b);
@@ -533,23 +548,35 @@ function exportCSV() {
   if (state.layers.length === 0) { toast('기록된 층위가 없습니다', 'error'); return; }
   const csv = FieldRecord.toCSVRows(state.layers);
   download('munsell_layers.csv', csv, 'text/csv');
-  toast('CSV 내보내기 완료', 'success');
 }
 
 function exportJSON() {
   if (state.layers.length === 0) { toast('기록된 층위가 없습니다', 'error'); return; }
   const json = FieldRecord.toJSON(state.layers, { site: '고고학 조사' });
   download('munsell_layers.json', json, 'application/json');
-  toast('JSON 내보내기 완료', 'success');
 }
 
-function download(filename, content, type) {
+async function download(filename, content, type) {
+  // 데스크톱 앱: 네이티브 저장 대화상자 (desktopBridge.js)
+  if (typeof DesktopBridge !== 'undefined' && DesktopBridge.isDesktop()) {
+    try {
+      const res = await DesktopBridge.saveFile(filename, content, type);
+      if (res?.ok)                        toast(`저장 완료: ${res.path}`, 'success');
+      else if (res?.reason !== 'cancelled') toast(`저장 실패: ${res?.reason || '알 수 없는 오류'}`, 'error');
+    } catch (e) {
+      toast(`저장 실패: ${e.message}`, 'error');
+    }
+    return;
+  }
+
+  // 브라우저: Blob 다운로드
   const blob = new Blob([content], { type });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = filename;
   a.click();
   URL.revokeObjectURL(a.href);
+  toast(`${filename} 내보내기 완료`, 'success');
 }
 
 // ─── Toast ────────────────────────────────────────────────────────────

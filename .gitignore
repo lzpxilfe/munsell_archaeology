@@ -18,6 +18,11 @@ node_modules/
 dist/
 .cache/
 
+# Python / PyInstaller
+__pycache__/
+*.pyc
+build/
+
 # Temp / Test files
 *.tmp
 test-images/

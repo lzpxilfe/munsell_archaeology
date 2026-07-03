@@ -156,6 +156,102 @@ const ChromAdapt = (() => {
     return Illuminant.xyYtoXYZ(x, y, 1.0);
   }
 
+  // ─── 고속 보정 경로: 결합 행렬 + 감마 LUT ────────────────────────
+  //
+  // 픽셀마다 sRGB→XYZ→Bradford→XYZ→sRGB를 수행하면 pow 호출이 병목이
+  // 된다. 변환 전체가 선형(linear RGB 기준)이므로 하나의 3×3 행렬로
+  // 합치고, 감마 인/디코딩은 LUT로 대체한다.
+  //
+  //   M = M_XYZ→RGB · Bradford(wpSrc→D65) · M_RGB→XYZ   (linear→linear)
+  //
+  // 결과는 correctPixelForField와 반올림 오차(±1/255) 내에서 동일해야
+  // 한다 (fixtures/correction_equiv_test.html에서 검증).
+
+  // sRGB ↔ XYZ (D65) 행렬 — illuminant.js와 동일한 IEC 61966-2-1 계수
+  const M_RGB2XYZ = [
+    [0.4124564, 0.3575761, 0.1804375],
+    [0.2126729, 0.7151522, 0.0721750],
+    [0.0193339, 0.1191920, 0.9503041],
+  ];
+  const M_XYZ2RGB = [
+    [ 3.2404542, -1.5371385, -0.4985314],
+    [-0.9692660,  1.8760108,  0.0415560],
+    [ 0.0556434, -0.2040259,  1.0572252],
+  ];
+
+  function matMul(A, B) {
+    const C = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    for (let i = 0; i < 3; i++)
+      for (let j = 0; j < 3; j++)
+        C[i][j] = A[i][0] * B[0][j] + A[i][1] * B[1][j] + A[i][2] * B[2][j];
+    return C;
+  }
+
+  /**
+   * wpSrc(촬영 광원 화이트포인트) → D65 보정의 linearRGB→linearRGB 결합 행렬
+   * @param {{ X,Y,Z }} wpSrc
+   * @returns {number[][]} 3×3
+   */
+  function buildCorrectionMatrix(wpSrc) {
+    const lmsSrc = matVec(M_BRADFORD, xyzToArr(wpSrc));
+    const lmsDst = matVec(M_BRADFORD, xyzToArr(Illuminant.WP_D65));
+    const D = [
+      [lmsDst[0] / lmsSrc[0], 0, 0],
+      [0, lmsDst[1] / lmsSrc[1], 0],
+      [0, 0, lmsDst[2] / lmsSrc[2]],
+    ];
+    // XYZ→RGB · B⁻¹ · D · B · RGB→XYZ
+    return matMul(M_XYZ2RGB, matMul(M_BRADFORD_INV, matMul(D, matMul(M_BRADFORD, M_RGB2XYZ))));
+  }
+
+  // 감마 LUT (지연 생성, 재사용)
+  let _decodeLUT = null;   // sRGB 0–255 → linear [0,1]
+  let _encodeLUT = null;   // linear [0,1]×65535 → sRGB 0–255
+
+  function _buildGammaLUTs() {
+    _decodeLUT = new Float32Array(256);
+    for (let i = 0; i < 256; i++) _decodeLUT[i] = Illuminant.sRGBtoLinear(i / 255);
+
+    _encodeLUT = new Uint8ClampedArray(65536);
+    for (let i = 0; i < 65536; i++) {
+      _encodeLUT[i] = Math.round(Illuminant.linearToSRGB(i / 65535) * 255);
+    }
+  }
+
+  /**
+   * ImageData 전체를 wpSrc → D65로 보정 (고속 경로)
+   * @param {ImageData}  imageData
+   * @param {{ X,Y,Z }}  wpSrc  촬영 광원 화이트포인트
+   * @returns {ImageData} 새 ImageData (원본 불변)
+   */
+  function correctImageDataToD65(imageData, wpSrc) {
+    if (!_decodeLUT) _buildGammaLUTs();
+    const M = buildCorrectionMatrix(wpSrc);
+    const m00 = M[0][0], m01 = M[0][1], m02 = M[0][2];
+    const m10 = M[1][0], m11 = M[1][1], m12 = M[1][2];
+    const m20 = M[2][0], m21 = M[2][1], m22 = M[2][2];
+
+    const src = imageData.data;
+    const out = new Uint8ClampedArray(src.length);
+    const dec = _decodeLUT, enc = _encodeLUT;
+
+    for (let i = 0; i < src.length; i += 4) {
+      const r = dec[src[i]], g = dec[src[i + 1]], b = dec[src[i + 2]];
+      let rn = m00 * r + m01 * g + m02 * b;
+      let gn = m10 * r + m11 * g + m12 * b;
+      let bn = m20 * r + m21 * g + m22 * b;
+      // clamp [0,1] 후 LUT 인덱싱
+      rn = rn < 0 ? 0 : rn > 1 ? 1 : rn;
+      gn = gn < 0 ? 0 : gn > 1 ? 1 : gn;
+      bn = bn < 0 ? 0 : bn > 1 ? 1 : bn;
+      out[i]     = enc[(rn * 65535 + 0.5) | 0];
+      out[i + 1] = enc[(gn * 65535 + 0.5) | 0];
+      out[i + 2] = enc[(bn * 65535 + 0.5) | 0];
+      out[i + 3] = src[i + 3];
+    }
+    return new ImageData(out, imageData.width, imageData.height);
+  }
+
   // ─── sRGB255 픽셀 현장 보정 (캔버스 preview용) ──────────────────
 
   /**
@@ -172,16 +268,11 @@ const ChromAdapt = (() => {
   }
 
   /**
-   * ImageData 전체 픽셀 현장 보정
+   * ImageData 전체 픽셀 현장 보정 (고속 경로에 위임)
    */
   function correctImageDataForField(imageData, K) {
     if (Math.abs(K - 6504) < 50) return imageData;
-    const data = new Uint8ClampedArray(imageData.data);
-    for (let i = 0; i < data.length; i += 4) {
-      const { r, g, b } = correctPixelForField(data[i], data[i+1], data[i+2], K);
-      data[i] = r; data[i+1] = g; data[i+2] = b;
-    }
-    return new ImageData(data, imageData.width, imageData.height);
+    return correctImageDataToD65(imageData, kelvinToXYZ(K));
   }
 
   // ─── Exports ──────────────────────────────────────────────────────
@@ -193,6 +284,7 @@ const ChromAdapt = (() => {
     // Field correction
     fieldLightingToD65, kelvinToXYZ,
     correctPixelForField, correctImageDataForField,
+    buildCorrectionMatrix, correctImageDataToD65,
     // Matrices (for testing)
     M_CAT02, M_CAT02_INV, M_BRADFORD, M_BRADFORD_INV,
   };
