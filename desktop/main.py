@@ -72,49 +72,71 @@ def run(debug=False, smoke=False):
     )
 
     if smoke:
-        def _smoke_probe():
+        E2E_JS = """
+        (async () => {
+          const out = {
+            title: document.title,
+            munsellLib: typeof munsell !== 'undefined',
+            bridge: typeof DesktopBridge !== 'undefined' && DesktopBridge.isDesktop(),
+          };
+          try {
+            // 합성 이미지: 10YR 4/3 정답색 배경
+            const c = document.createElement('canvas');
+            c.width = 200; c.height = 100;
+            const cx = c.getContext('2d');
+            cx.fillStyle = 'rgb(115,92,64)';
+            cx.fillRect(0, 0, 200, 100);
+            const img = new Image();
+            await new Promise(res => { img.onload = res; img.src = c.toDataURL(); });
+
+            showCanvas();
+            state.image = img;
+            picker.setImage(img, currentCorrectFn());
+            out.loaded = picker.hasImage;
+
+            // 스포이드 시뮬레이션 (D65 — 보정 없음)
+            const pair = picker.samplePair(50, 50);
+            out.sample = [pair.r, pair.g, pair.b];
+            handleColorPick(pair);
+            out.code = state.currentResult.code;
+            out.fromLib = state.currentResult.fromLib;
+
+            // 조명 3200K: 보정본과 raw가 달라야 함
+            setLighting(3200);
+            const p2 = picker.samplePair(50, 50);
+            out.corrected3200 = [p2.r, p2.g, p2.b];
+            out.raw3200 = [p2.raw.r, p2.raw.g, p2.raw.b];
+            setLighting(6504);
+
+            // 줌/팬
+            picker.view.zoomAt(100, 50, 2);
+            out.zoom = picker.view.zoomFactor;
+            picker.view.panBy(10, 10);
+            picker.view.render();
+            out.ok = true;
+          } catch (e) { out.err = String(e && e.stack || e); }
+          window.__smokeResult = out;
+        })()
+        """
+
+        def _smoke_collect():
             try:
                 report = window.evaluate_js(
-                    "JSON.stringify((() => {"
-                    "  const out = {"
-                    "    title: document.title,"
-                    "    app: typeof state !== 'undefined',"
-                    "    convert: typeof MunsellConvert !== 'undefined',"
-                    "    munsellLib: typeof munsell !== 'undefined',"
-                    "    bridge: typeof DesktopBridge !== 'undefined' && DesktopBridge.isDesktop(),"
-                    "  };"
-                    "  out.globals = {"
-                    "    Illuminant: typeof Illuminant, ChromAdapt: typeof ChromAdapt,"
-                    "    NearestChip: typeof NearestChip, ChipDatabase: typeof ChipDatabase,"
-                    "    FieldRecord: typeof FieldRecord, ColorPicker: typeof ColorPicker,"
-                    "  };"
-                    "  out.resources = performance.getEntriesByType('resource')"
-                    "    .filter(r => r.name.includes('.js'))"
-                    "    .map(r => r.name.split('/').pop() + ':' + (r.responseStatus ?? '?') + ':' + r.transferSize);"
-                    "  try {"
-                    "    const xhr = new XMLHttpRequest();"
-                    "    xhr.open('GET', 'js/nearestChip.js', false);"
-                    "    xhr.send();"
-                    "    out.reevalStatus = xhr.status + ' len=' + xhr.responseText.length;"
-                    "    (0, eval)(xhr.responseText.replace('const NearestChip', 'window.__NC'));"
-                    "    out.reeval = typeof window.__NC;"
-                    "  } catch (e) { out.reevalErr = String(e); }"
-                    "  try {"
-                    "    out.libRgb = munsell.munsellToRgb255('5YR 4/4');"
-                    "    const r = converter.analyze(116, 88, 52);"
-                    "    out.analyzeCode = r.code;"
-                    "    out.fromLib = r.fromLib;"
-                    "  } catch (e) { out.err = String(e && e.stack || e); }"
-                    "  return out;"
-                    "})())"
-                )
+                    "JSON.stringify(window.__smokeResult || {pending: true})")
                 print("SMOKE:", report, flush=True)
             except Exception as e:
                 print("SMOKE-ERROR:", e, flush=True)
             window.destroy()
 
-        window.events.loaded += lambda: threading.Timer(3.0, _smoke_probe).start()
-        threading.Timer(20.0, window.destroy).start()
+        def _smoke_start():
+            try:
+                window.evaluate_js(E2E_JS)
+            except Exception as e:
+                print("SMOKE-ERROR(start):", e, flush=True)
+            threading.Timer(3.0, _smoke_collect).start()
+
+        window.events.loaded += lambda: threading.Timer(2.5, _smoke_start).start()
+        threading.Timer(25.0, window.destroy).start()
 
     webview.start(
         debug=debug,

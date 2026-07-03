@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>보정 경로 동등성 검증 (Correction Equivalence Test)</title>
+  <style>
+    body { font-family: 'JetBrains Mono', monospace, sans-serif; background: #1a1a1a; color: #e0e0e0; padding: 20px; }
+    h1 { color: #c4a44e; font-size: 1.1rem; margin-bottom: 4px; }
+    p.subtitle { color: #888; font-size: 0.75rem; margin-bottom: 16px; }
+    .pass { color: #6dbe6d; font-weight: bold; }
+    .fail { color: #e05858; font-weight: bold; }
+    table { border-collapse: collapse; font-size: 0.75rem; margin-top: 10px; }
+    th, td { padding: 4px 10px; border-bottom: 1px solid #2a2a2a; text-align: left; }
+    th { color: #c4a44e; }
+    #summary { margin-top: 16px; padding: 12px; background: #222; border-radius: 6px; font-size: 0.85rem; }
+  </style>
+  <script src="../js/illuminant.js"></script>
+  <script src="../js/chromAdapt.js"></script>
+</head>
+<body>
+
+<h1>⚡ 보정 경로 동등성 검증</h1>
+<p class="subtitle">
+  기준: correctPixelForField (픽셀 단위 참조 구현) vs<br>
+  신규: correctImageDataToD65 (결합 3×3 행렬 + 감마 LUT 고속 경로) — 허용 오차 ±1/255
+</p>
+
+<div id="output">⏳ 실행 중...</div>
+
+<script>
+(function run() {
+  // 시드 고정 PRNG (mulberry32) — 재현 가능한 무작위 픽셀
+  function mulberry32(a) {
+    return function() {
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      let t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  const rand = mulberry32(20260703);
+
+  const N = 500;
+  const KS = [3200, 4000, 5500, 7500, 9000];
+
+  // 무작위 픽셀 N개 생성
+  const pixels = [];
+  for (let i = 0; i < N; i++) {
+    pixels.push([
+      Math.floor(rand() * 256),
+      Math.floor(rand() * 256),
+      Math.floor(rand() * 256),
+    ]);
+  }
+
+  let html = '<table><thead><tr><th>색온도</th><th>최대 편차</th><th>편차>1 픽셀</th><th>판정</th></tr></thead><tbody>';
+  let allPass = true;
+  const t0 = performance.now();
+
+  for (const K of KS) {
+    // 참조 경로: 픽셀 단위
+    const ref = pixels.map(([r, g, b]) => ChromAdapt.correctPixelForField(r, g, b, K));
+
+    // 고속 경로: ImageData 전체
+    const data = new Uint8ClampedArray(N * 4);
+    pixels.forEach(([r, g, b], i) => {
+      data[i * 4] = r; data[i * 4 + 1] = g; data[i * 4 + 2] = b; data[i * 4 + 3] = 255;
+    });
+    const corrected = ChromAdapt.correctImageDataToD65(
+      new ImageData(data, N, 1), ChromAdapt.kelvinToXYZ(K));
+
+    let maxDiff = 0, over = 0;
+    for (let i = 0; i < N; i++) {
+      const d = Math.max(
+        Math.abs(ref[i].r - corrected.data[i * 4]),
+        Math.abs(ref[i].g - corrected.data[i * 4 + 1]),
+        Math.abs(ref[i].b - corrected.data[i * 4 + 2]));
+      if (d > maxDiff) maxDiff = d;
+      if (d > 1) over++;
+    }
+
+    const pass = over === 0;
+    if (!pass) allPass = false;
+    html += `<tr><td>${K}K</td><td>${maxDiff}</td><td>${over}/${N}</td>
+      <td class="${pass ? 'pass' : 'fail'}">${pass ? '✓ 통과' : '✕ 실패'}</td></tr>`;
+  }
+  html += '</tbody></table>';
+
+  // 성능 벤치: 4MP 상당 ImageData 1회 보정 시간
+  const bigN = 2000 * 2000;
+  const big = new Uint8ClampedArray(bigN * 4);
+  for (let i = 0; i < big.length; i++) big[i] = (i * 31) & 255;
+  const bigData = new ImageData(big, 2000, 2000);
+  const tb = performance.now();
+  ChromAdapt.correctImageDataForField(bigData, 3200);
+  const bigMs = performance.now() - tb;
+
+  html += `<div id="summary">
+    <span class="${allPass ? 'pass' : 'fail'}">${allPass ? '✓ 전체 통과' : '✕ 실패 있음'}</span>
+    — ${KS.length}개 색온도 × ${N}픽셀, 허용 오차 ±1/255<br>
+    <small style="color:#888">4MP(2000×2000) 보정: ${bigMs.toFixed(0)}ms · 전체 소요: ${(performance.now() - t0).toFixed(0)}ms</small>
+  </div>`;
+
+  document.getElementById('output').innerHTML = html;
+})();
+</script>
+</body>
+</html>
