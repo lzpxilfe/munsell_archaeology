@@ -1,0 +1,24 @@
+# OS generated
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Logs
+*.log
+npm-debug.log*
+
+# Node (if ever used)
+node_modules/
+dist/
+.cache/
+
+# Temp / Test files
+*.tmp
+test-images/
+scratch/
