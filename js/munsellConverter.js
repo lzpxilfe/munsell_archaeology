@@ -251,7 +251,7 @@ class MunsellConverter {
     const S_C = 1 + 0.045*Cbp;
     const S_H = 1 + 0.015*Cbp*T;
     const R_T = -2*Math.sqrt(Cbp7/(Cbp7+25**7))
-      * Math.sin(60*Math.exp(-((Hbp-275)/25)**2)*Math.PI/180);
+      * Math.sin(60*Math.exp(-(((Hbp-275)/25)**2))*Math.PI/180);
 
     return Math.sqrt(
       (dLp/(k_L*S_L))**2 +
