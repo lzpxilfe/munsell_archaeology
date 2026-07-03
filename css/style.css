@@ -1035,3 +1035,59 @@ body {
   font-size: 0.72rem;
   font-weight: 600;
 }
+
+/* ─── 마커 비교 ─── */
+.markers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.marker-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  font-size: 0.75rem;
+}
+
+.marker-row.selected { border-color: var(--accent-gold); background: rgba(196,154,78,0.07); }
+
+.marker-label {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent-gold);
+  color: var(--accent-gold);
+  font-size: 0.68rem;
+  font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+
+.marker-swatch {
+  width: 22px; height: 22px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.12);
+  flex-shrink: 0;
+}
+
+.marker-info { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.marker-code { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--text-primary); }
+.marker-name { font-size: 0.66rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.markers-compare {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+
+.cmp-same { color: #6dbe6d; font-weight: 600; }
+.cmp-near { color: #e0b84a; font-weight: 600; }
+.cmp-diff { color: #e07858; font-weight: 600; }

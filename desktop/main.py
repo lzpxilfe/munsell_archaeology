@@ -124,6 +124,30 @@ def run(debug=False, smoke=False):
             out.wbModeAfter = state.wbMode;
             out.wbBadgeAfter = document.getElementById('wb-badge').style.display !== 'none';
 
+            // 마커: 점 + 영역 고정 → 상호 ΔE → 층위 승격 → 재계산
+            handleColorPick({ ...picker.samplePair(30, 30), point: { ix: 30, iy: 30 } });
+            const m1 = markers.add(state.currentResult, currentWbSnapshot());
+            handleRegionResult(
+              RegionStats.averageRect(picker.view.correctedImageData, 60, 20, 140, 90),
+              { kind: 'rect', geometry: { x0: 60, y0: 20, x1: 140, y1: 90 } });
+            const m2 = markers.add(state.currentResult, currentWbSnapshot());
+            out.markerLabels = markers.items.map(m => m.label);
+            out.markersPanel = document.getElementById('markers-section').style.display !== 'none';
+            markers.toggleSelect(m1.id);
+            markers.toggleSelect(m2.id);
+            const mut = markers.mutualDeltaE();
+            out.mutualDE = mut ? Math.round(mut.dE * 100) / 100 : null;
+            out.mutualEquiv = mut ? mut.equivalent : null;
+            const layersBefore = state.layers.length;
+            addLayer(m1.result, m1.wb);
+            out.layerAdded = state.layers.length === layersBefore + 1;
+            out.layerK = state.layers[state.layers.length - 1].matrix.lightingK;
+            setLighting(3200);
+            markers.recomputeAll((r, g, b) => converter.analyze(r, g, b), currentWbSnapshot());
+            out.recomputedCode = markers.items[0].result.code;
+            setLighting(6504);
+            out.csvRows = FieldRecord.toCSVRows(state.layers).split('\\n').length;
+
             // 줌/팬
             picker.view.zoomAt(100, 50, 2);
             out.zoom = picker.view.zoomFactor;

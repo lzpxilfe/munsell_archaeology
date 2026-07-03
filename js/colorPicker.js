@@ -210,7 +210,7 @@ class ColorPicker {
       if (!this.view.inImage(pos.ix, pos.iy)) return;
       const color = this.samplePair(pos.ix, pos.iy);
       if (color) {
-        this.onPick(color);
+        this.onPick({ ...color, point: { ix: pos.ix, iy: pos.iy } });
         this._showPickIndicator(pos.cx, pos.cy);
       }
     }
@@ -233,7 +233,7 @@ class ColorPicker {
     if (this.tool === 'pick' && this.view.inImage(pos.ix, pos.iy)) {
       const color = this.samplePair(pos.ix, pos.iy);
       if (color) {
-        this.onPick(color);
+        this.onPick({ ...color, point: { ix: pos.ix, iy: pos.iy } });
         this._showPickIndicator(pos.cx, pos.cy);
       }
     }

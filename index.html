@@ -179,6 +179,12 @@
         </div>
       </div>
 
+      <!-- 마커 고정 (다중 지점 비교) -->
+      <button id="pin-marker-btn" class="btn btn-sm w-full" disabled
+              title="현재 결과를 사진 위 마커로 고정 — 여러 지점의 색을 나란히 비교">
+        📌 마커로 고정 (지점 비교)
+      </button>
+
       <!-- ── Closest candidates ── -->
       <div>
         <div class="section-label" style="margin-bottom:8px">가장 가까운 먼셀 칩 (ΔE2000 순)</div>
@@ -258,6 +264,19 @@
 
     <!-- Comparison strip -->
     <div id="comparison-strip" class="comparison-strip" style="margin:8px 12px 0;height:20px;border-radius:4px"></div>
+
+    <!-- 마커 비교 (마커가 있을 때만 표시) -->
+    <div id="markers-section" style="padding:8px 12px 0;display:none">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+        <span class="section-label" style="margin-bottom:0">📌 마커 비교</span>
+        <div style="margin-left:auto;display:flex;gap:4px">
+          <button id="markers-recompute" class="btn btn-sm btn-ghost" title="조명 보정 변경 후 모든 마커를 현재 기준으로 재계산">↻ 재계산</button>
+          <button id="markers-clear" class="btn btn-sm btn-ghost" title="마커 전체 삭제">🗑</button>
+        </div>
+      </div>
+      <div id="markers-list" class="markers-list"></div>
+      <div id="markers-compare" class="markers-compare" style="display:none"></div>
+    </div>
 
     <!-- Toolbar -->
     <div class="layers-toolbar">
@@ -346,6 +365,7 @@
 <script src="js/imageView.js"></script>
 <script src="js/colorPicker.js"></script>
 <script src="js/regionSelect.js"></script>
+<script src="js/markers.js"></script>
 <script src="js/app.js"></script>
 
 <!-- Sync munsell-code-small with munsell-code -->

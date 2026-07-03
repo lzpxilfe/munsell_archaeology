@@ -46,6 +46,17 @@ const chipsDB = ChipDatabase.build();
 const converter = new MunsellConvert(chipsDB);
 let picker = null;
 let regionSelect = null;
+let markers = null;
+
+/** 층위/마커 기록용 현재 WB 스냅샷 */
+function currentWbSnapshot() {
+  return {
+    mode: state.wbMode,
+    K: state.wbMode === 'kelvin' ? state.lightingK : null,
+    whitePoint: state.wbWhitePoint,
+    cct: state.wbCCT,
+  };
+}
 
 // ─── DOM refs ─────────────────────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
@@ -58,6 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupLightingControls();
   setupSamplingControls();
   setupToolControls();
+  setupMarkerUI();
   setupLayerUI();
   setupExport();
   setupMiscControls();
@@ -110,6 +122,7 @@ function setupImageUpload() {
   // Init picker (ChromAdapt is used as the temperature corrector)
   picker = new ColorPicker(canvas, magnifier, magCanvas, handleColorPick);
   regionSelect = new RegionSelect(picker, handleRegionResult);
+  markers = new Markers(picker, { onChange: renderMarkersPanel });
 
   // 그레이카드 도구: 원본(미보정)에서 9×9 평균 → 광원 추정 → 전체 보정
   picker.registerTool('graycard', {
@@ -190,6 +203,7 @@ function showCanvas() {
 function clearImage() {
   state.image = null;
   regionSelect?.clear();
+  markers?.clear();
   const zone = $('#upload-zone');
   const wrap = $('#canvas-wrapper');
   if (zone) zone.style.display = '';
@@ -339,10 +353,11 @@ function setupToolControls() {
  *   캔버스 픽: 이미 조명 보정된 값 + raw(보정 전) — 재보정하지 않는다.
  *   화면 스포이드/참조 칩: 화면 표시색 그대로 (촬영 조명 보정 개념 없음).
  */
-function handleColorPick({ r, g, b, raw }) {
+function handleColorPick({ r, g, b, raw, point }) {
   const result = converter.analyze(r, g, b);
   result.rawRgb = raw || null;   // 보정 전 원본 픽셀 (표시용)
   result.sampleStats = null;     // 점 샘플 — 영역 통계 없음
+  result.point = point || null;  // 이미지 좌표 (마커 고정용)
 
   state.currentResult = result;
   renderResult(result);
@@ -436,9 +451,11 @@ function renderResult(res) {
   // Candidates list
   renderCandidates(res.candidates);
 
-  // Enable add-layer button
+  // Enable add-layer / pin-marker buttons
   const addBtn = $('#add-layer-btn');
   if (addBtn) addBtn.disabled = false;
+  const pinBtn = $('#pin-marker-btn');
+  if (pinBtn) pinBtn.disabled = !(res.region || res.point);
 }
 
 function setEl(id, val) {
@@ -527,9 +544,83 @@ function renderSoilReference() {
   });
 }
 
+// ─── Markers (다중 지점 비교) ─────────────────────────────────────────
+function setupMarkerUI() {
+  $('#pin-marker-btn')?.addEventListener('click', () => {
+    if (!state.currentResult || !markers) return;
+    const m = markers.add(state.currentResult, currentWbSnapshot());
+    if (m) toast(`마커 ${m.label} 고정: ${m.result.code}`, 'success');
+    else   toast('사진 위에서 채취한 결과만 마커로 고정할 수 있습니다', 'error');
+  });
+
+  $('#markers-recompute')?.addEventListener('click', () => {
+    if (!markers?.items.length) return;
+    markers.recomputeAll((r, g, b) => converter.analyze(r, g, b), currentWbSnapshot());
+    toast('모든 마커를 현재 조명 보정 기준으로 재계산했습니다', 'info');
+  });
+
+  $('#markers-clear')?.addEventListener('click', () => {
+    if (markers?.items.length && confirm('마커를 모두 삭제하시겠습니까?')) markers.clear();
+  });
+}
+
+function renderMarkersPanel() {
+  const section = $('#markers-section');
+  const list = $('#markers-list');
+  if (!section || !list) return;
+
+  if (!markers || markers.items.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+  list.innerHTML = '';
+
+  const kindIcon = { point: '📍', rect: '▭', lasso: '✎' };
+  markers.items.forEach(m => {
+    const row = document.createElement('div');
+    row.className = 'marker-row' + (markers.selected.has(m.id) ? ' selected' : '');
+    row.innerHTML = `
+      <input type="checkbox" ${markers.selected.has(m.id) ? 'checked' : ''} title="비교 대상으로 선택 (2개까지)">
+      <span class="marker-label">${m.label}</span>
+      <span class="marker-swatch" style="background:${m.result.chipHex}"></span>
+      <span class="marker-info">
+        <span class="marker-code">${m.result.code}</span>
+        <span class="marker-name">${kindIcon[m.kind] || ''} ${m.result.korName}</span>
+      </span>
+      <button class="btn btn-sm btn-ghost" data-act="layer" title="이 마커를 층위 기록으로 추가">층위↑</button>
+      <button class="btn btn-icon btn-danger btn-sm" data-act="del" title="마커 삭제">✕</button>
+    `;
+    row.querySelector('input').addEventListener('change', () => markers.toggleSelect(m.id));
+    row.querySelector('[data-act="layer"]').addEventListener('click', () => addLayer(m.result, m.wb));
+    row.querySelector('[data-act="del"]').addEventListener('click', () => markers.remove(m.id));
+    list.appendChild(row);
+  });
+
+  // 상호 비교
+  const cmp = $('#markers-compare');
+  if (cmp) {
+    const mut = markers.mutualDeltaE();
+    if (mut && mut.a.result.lab_C && mut.b.result.lab_C) {
+      cmp.style.display = '';
+      const verdict = mut.equivalent
+        ? '<span class="cmp-same">지각적으로 동일 (등가) — 같은 층일 가능성 높음</span>'
+        : mut.dE < 3.5
+          ? '<span class="cmp-near">근접 — 유사한 토색</span>'
+          : '<span class="cmp-diff">뚜렷이 다른 색 — 다른 층위 가능성</span>';
+      cmp.innerHTML = `<strong>${mut.a.label} ↔ ${mut.b.label}</strong> &nbsp;ΔE2000 = ${mut.dE.toFixed(2)}<br>${verdict}`;
+    } else if (markers.items.length >= 2) {
+      cmp.style.display = '';
+      cmp.innerHTML = '<span style="color:var(--text-muted)">두 마커를 체크하면 상호 색차(ΔE2000)를 비교합니다</span>';
+    } else {
+      cmp.style.display = 'none';
+    }
+  }
+}
+
 // ─── Layer Recording ──────────────────────────────────────────────────
 function setupLayerUI() {
-  $('#add-layer-btn')?.addEventListener('click', addLayer);
+  $('#add-layer-btn')?.addEventListener('click', () => addLayer());
   $('#sort-asc')?.addEventListener('click',  () => sortLayers('asc'));
   $('#sort-desc')?.addEventListener('click', () => sortLayers('desc'));
   $('#clear-layers-btn')?.addEventListener('click', () => {
@@ -541,8 +632,12 @@ function setupLayerUI() {
   });
 }
 
-function addLayer() {
-  const res = state.currentResult;
+/**
+ * 층위 기록 추가
+ * @param {object} res  분석 결과 (기본: 현재 결과) — 마커 승격 시 마커의 result
+ * @param {object} wb   WB 스냅샷 (기본: 현재 상태) — 마커 승격 시 채취 당시 값
+ */
+function addLayer(res = state.currentResult, wb = currentWbSnapshot()) {
   if (!res) return;
 
   const numInput  = $('#layer-num');
@@ -566,13 +661,8 @@ function addLayer() {
   layer.matrix.hex = res.chipHex;
   layer.matrix.korName = res.korName;
   layer.matrix.deltaE = res.deltaE;
-  layer.matrix.lightingK = state.wbMode === 'graycard' ? state.wbCCT : state.lightingK;
-  layer.matrix.wb = {
-    mode: state.wbMode,
-    K: state.wbMode === 'kelvin' ? state.lightingK : null,
-    whitePoint: state.wbWhitePoint,
-    cct: state.wbCCT,
-  };
+  layer.matrix.lightingK = wb.mode === 'graycard' ? wb.cct : wb.K;
+  layer.matrix.wb = wb;
   layer.matrix.sampleStats = res.sampleStats || null;
   layer.matrix.rgb = res.rgb;
   layer.matrix.pipeline = res.pipeline;
