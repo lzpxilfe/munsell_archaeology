@@ -127,7 +127,8 @@ class ColorPicker {
     window.addEventListener('keyup', e => {
       if (e.code === 'Space') {
         this._spaceDown = false;
-        this._panning = false;
+        // _panning은 여기서 풀지 않는다 — 마우스 버튼이 아직 눌려 있으면
+        // 팬을 유지해야 mouseup이 색 채취로 오인되지 않는다 (_onUp에서 해제)
         this._applyCursor();
       }
     });
@@ -152,6 +153,9 @@ class ColorPicker {
 
   _onDown(e) {
     if (!this.view.hasImage) return;
+    // 제스처 출처 추적: 캔버스에서 시작한 드래그만 up에서 발화되도록
+    // (패널의 텍스트 드래그를 캔버스 위에서 놓아도 픽/그레이카드가 발화하면 안 됨)
+    this._gestureOnCanvas = true;
     const pos = this._pos(e);
 
     if (this._panActive(e)) {
@@ -194,8 +198,11 @@ class ColorPicker {
   }
 
   _onUp(e) {
+    const startedOnCanvas = this._gestureOnCanvas;
+    this._gestureOnCanvas = false;
+
     if (this._panning) { this._panning = false; return; }
-    if (!this.view.hasImage) return;
+    if (!this.view.hasImage || !startedOnCanvas) return;
 
     const handler = this._tools[this.tool];
     if (handler?.up) {

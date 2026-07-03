@@ -169,10 +169,26 @@ function setupPasteSupport() {
   });
 }
 
+/**
+ * 이미지 교체/제거 시 이전 이미지에 종속된 상태 정리
+ * (마커·영역은 이미지 좌표 기반이라 다른 사진에 이월되면 잘못된 기록이 됨)
+ */
+function resetPerImageState() {
+  markers?.clear();
+  regionSelect?.clear();
+  state.currentResult = null;
+  const pinBtn = $('#pin-marker-btn');
+  if (pinBtn) pinBtn.disabled = true;
+  const addBtn = $('#add-layer-btn');
+  if (addBtn) addBtn.disabled = true;
+  renderSampleStats(null);
+}
+
 function loadImageFile(file) {
   const url = URL.createObjectURL(file);
   const img = new Image();
   img.onload = () => {
+    resetPerImageState();
     state.image = img;
     showCanvas();
     const { downscaled } = picker.setImage(img, currentCorrectFn());
@@ -202,8 +218,7 @@ function showCanvas() {
 
 function clearImage() {
   state.image = null;
-  regionSelect?.clear();
-  markers?.clear();
+  resetPerImageState();
   const zone = $('#upload-zone');
   const wrap = $('#canvas-wrapper');
   if (zone) zone.style.display = '';
@@ -358,6 +373,7 @@ function handleColorPick({ r, g, b, raw, point }) {
   result.rawRgb = raw || null;   // 보정 전 원본 픽셀 (표시용)
   result.sampleStats = null;     // 점 샘플 — 영역 통계 없음
   result.point = point || null;  // 이미지 좌표 (마커 고정용)
+  result.wb = currentWbSnapshot();  // 채취 시점 WB — 기록 시점이 아님 (재현성)
 
   state.currentResult = result;
   renderResult(result);
@@ -373,6 +389,7 @@ function handleRegionResult(avg, region) {
   result.rawRgb = null;
   result.sampleStats = avg.stats;
   result.region = region;
+  result.wb = currentWbSnapshot();  // 채취 시점 WB
 
   state.currentResult = result;
   renderResult(result);
@@ -391,11 +408,15 @@ function renderResult(res) {
   if (swatch) {
     swatch.style.background = res.hex;
     swatch.title = res.hex;
+    swatch.querySelector('.swatch-empty')?.remove();
   }
 
   // Munsell chip swatch
   const chipSwatch = $('#chip-swatch');
-  if (chipSwatch) chipSwatch.style.background = res.chipHex;
+  if (chipSwatch) {
+    chipSwatch.style.background = res.chipHex;
+    chipSwatch.querySelector('.swatch-empty')?.remove();
+  }
 
   // Code
   const code = $('#munsell-code');
@@ -508,6 +529,9 @@ function renderCandidates(candidates) {
         state.currentResult.accuracy = NearestChip.accuracy(c.dE);
         const parsed = converter._parseCode(c.code);
         Object.assign(state.currentResult, parsed);
+        // 코드에서 파생되는 표기들도 함께 갱신 (안 하면 CSV에 모순 기록)
+        state.currentResult.korName   = converter._korName(parsed);
+        state.currentResult.soilClass = converter._soilClass(parsed);
         renderResult(state.currentResult);
         toast(`${c.code} 선택됨`, 'info');
       }
@@ -547,8 +571,8 @@ function renderSoilReference() {
 // ─── Markers (다중 지점 비교) ─────────────────────────────────────────
 function setupMarkerUI() {
   $('#pin-marker-btn')?.addEventListener('click', () => {
-    if (!state.currentResult || !markers) return;
-    const m = markers.add(state.currentResult, currentWbSnapshot());
+    if (!state.currentResult || !markers || !picker?.hasImage) return;
+    const m = markers.add(state.currentResult, state.currentResult.wb || currentWbSnapshot());
     if (m) toast(`마커 ${m.label} 고정: ${m.result.code}`, 'success');
     else   toast('사진 위에서 채취한 결과만 마커로 고정할 수 있습니다', 'error');
   });
@@ -637,8 +661,11 @@ function setupLayerUI() {
  * @param {object} res  분석 결과 (기본: 현재 결과) — 마커 승격 시 마커의 result
  * @param {object} wb   WB 스냅샷 (기본: 현재 상태) — 마커 승격 시 채취 당시 값
  */
-function addLayer(res = state.currentResult, wb = currentWbSnapshot()) {
+function addLayer(res = state.currentResult, wb = null) {
   if (!res) return;
+  // WB는 채취 시점 스냅샷 우선 — 기록 버튼을 누른 시점의 상태가 아니라
+  // 그 색이 실제로 계산된 조건을 기록해야 재현 가능하다.
+  wb = wb || res.wb || currentWbSnapshot();
 
   const numInput  = $('#layer-num');
   const descInput = $('#layer-desc');

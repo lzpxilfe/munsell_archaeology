@@ -24,14 +24,20 @@ class _AssetHandler(SimpleHTTPRequestHandler):
         pass
 
 
+class _Server(ThreadingHTTPServer):
+    # 기본값(True)이면 Windows에서 SO_REUSEADDR 때문에 이미 점유된 포트에도
+    # 바인딩이 성공해 버려 임시 포트 폴백이 동작하지 않는다.
+    allow_reuse_address = False
+
+
 def start_server(root):
     """root 디렉터리를 서빙하는 데몬 서버를 시작하고 (httpd, port)를 반환한다."""
     handler = functools.partial(_AssetHandler, directory=str(root))
     try:
-        httpd = ThreadingHTTPServer((HOST, PREFERRED_PORT), handler)
+        httpd = _Server((HOST, PREFERRED_PORT), handler)
     except OSError:
         # 포트 점유(다른 인스턴스 등) 시 임시 포트로 폴백
-        httpd = ThreadingHTTPServer((HOST, 0), handler)
+        httpd = _Server((HOST, 0), handler)
 
     port = httpd.server_address[1]
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
