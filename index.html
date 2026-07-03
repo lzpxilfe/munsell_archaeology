@@ -80,6 +80,7 @@
         <button class="tool-chip active" data-tool="pick"  title="스포이드 — 클릭 지점의 색 채취">💧 스포이드</button>
         <button class="tool-chip" data-tool="rect"  title="사각형 영역을 드래그 — 빛/그림자 제외 평균색">▭ 사각형</button>
         <button class="tool-chip" data-tool="lasso" title="자유곡선으로 영역 지정 — 빛/그림자 제외 평균색">✎ 올가미</button>
+        <button class="tool-chip" data-tool="graycard" title="사진 속 회색 카드/무채색 물체를 클릭 → 조명 자동 보정">⬜ 그레이카드</button>
         <button class="tool-chip" data-tool="pan"   title="이미지 이동 (Space+드래그, 휠버튼 드래그도 가능)">✋ 이동</button>
 
         <div style="width:1px;background:var(--border);height:18px;margin:0 4px"></div>
@@ -192,8 +193,12 @@
       <div class="divider"></div>
       <div class="section-label">🌡️ 조명 보정 (색온도)</div>
       <div style="font-size:0.7rem;color:var(--text-muted);margin-top:-4px;line-height:1.6">
-        사진 촬영 당시 조명 조건을 선택하면<br>D65 표준으로 보정하여 정확한 색을 판별합니다.
+        사진 촬영 당시 조명 조건을 선택하면<br>D65 표준으로 보정하여 정확한 색을 판별합니다.<br>
+        사진에 회색 카드가 찍혀 있다면 <strong>⬜ 그레이카드</strong> 도구가 가장 정확합니다.
       </div>
+
+      <!-- 그레이카드 적용 배지 -->
+      <div id="wb-badge" class="wb-badge" style="display:none"></div>
 
       <!-- Preset buttons -->
       <div style="display:flex;flex-wrap:wrap;gap:5px">

@@ -8,6 +8,9 @@ const state = {
   currentResult: null,
   samplingMode: 1,  // 1=1px, 2=3×3, 3=5×5, 4=7×7
   lightingK: 6504,  // D65 default
+  wbMode: 'kelvin',        // 'kelvin' | 'graycard' (상호배타)
+  wbWhitePoint: null,      // 그레이카드로 추정한 광원 화이트포인트
+  wbCCT: null,             // 추정 CCT (표시/기록용)
   layers: [],
   theme: localStorage.getItem('munsell-theme') || 'dark',
 };
@@ -18,6 +21,10 @@ const state = {
  * 추가 보정을 하면 안 된다 (이중 보정 금지).
  */
 function currentCorrectFn() {
+  if (state.wbMode === 'graycard' && state.wbWhitePoint) {
+    const wp = state.wbWhitePoint;
+    return (imageData) => ChromAdapt.correctImageDataToD65(imageData, wp);
+  }
   if (Math.abs(state.lightingK - 6504) < 50) return null;
   const K = state.lightingK;
   return (imageData) => ChromAdapt.correctImageDataForField(imageData, K);
@@ -103,6 +110,17 @@ function setupImageUpload() {
   // Init picker (ChromAdapt is used as the temperature corrector)
   picker = new ColorPicker(canvas, magnifier, magCanvas, handleColorPick);
   regionSelect = new RegionSelect(picker, handleRegionResult);
+
+  // 그레이카드 도구: 원본(미보정)에서 9×9 평균 → 광원 추정 → 전체 보정
+  picker.registerTool('graycard', {
+    cursor: 'crosshair',
+    up: (pos, e) => {
+      if (e.target !== canvas || e.button !== 0) return;
+      if (!picker.view.inImage(pos.ix, pos.iy)) return;
+      const raw = picker.view.sampleRawAt(pos.ix, pos.iy, 9);
+      if (raw) applyGraycard(raw);
+    },
+  });
 
   // Click on zone
   zone?.addEventListener('click', () => input?.click());
@@ -211,6 +229,11 @@ function setupLightingControls() {
 }
 
 function setLighting(K) {
+  // 프리셋/슬라이더 조작 시 그레이카드 모드는 해제 (상호배타)
+  const wasGraycard = state.wbMode === 'graycard';
+  state.wbMode = 'kelvin';
+  state.wbWhitePoint = null;
+  state.wbCCT = null;
   state.lightingK = K;
 
   // 보정본 갱신 (샘플링·표시 모두 이 보정본 기준)
@@ -218,12 +241,72 @@ function setLighting(K) {
     picker.setCorrection(currentCorrectFn());
   }
 
+  if (wasGraycard) toast('그레이카드 보정 해제 — 색온도 모드로 전환', 'info');
+  updateWbUI();
+
   // Update display
   const desc = $('#lighting-desc');
   if (desc) {
     const preset = LIGHTING_PRESETS[K] || Object.values(LIGHTING_PRESETS)
       .reduce((a, b) => Math.abs(b.K - K) < Math.abs(a.K - K) ? b : a);
     desc.textContent = preset ? preset.desc : `${K}K`;
+  }
+}
+
+// ─── 그레이카드 화이트밸런스 ──────────────────────────────────────────
+/**
+ * @param {{r,g,b}} raw  원본(미보정) 픽셀 평균 — 무채색 가정
+ */
+function applyGraycard(raw) {
+  const est = ChromAdapt.estimateIlluminantFromGray(raw.r, raw.g, raw.b);
+
+  if (est.warnings.includes('clipped_high')) {
+    toast('선택 지점이 과노출(클리핑)되어 기준으로 쓸 수 없습니다. 회색 부분을 클릭하세요.', 'error');
+    return;
+  }
+  if (est.warnings.includes('clipped_low')) {
+    toast('선택 지점이 너무 어두워 기준으로 쓸 수 없습니다. 회색 부분을 클릭하세요.', 'error');
+    return;
+  }
+  if (est.warnings.includes('not_neutral')) {
+    toast('선택 지점이 광원 색으로 보기 어렵습니다 — 회색 카드나 무채색 물체를 클릭하세요', 'error');
+    return;
+  }
+  if (est.warnings.includes('suspicious_cct')) {
+    toast(`주의: 추정 광원이 매우 따뜻합니다 (≈${est.cct}K) — 클릭 지점이 갈색 흙이라면 잘못된 보정입니다`, 'error');
+  }
+
+  state.wbMode = 'graycard';
+  state.wbWhitePoint = est.wp;
+  state.wbCCT = est.cct;
+
+  if (state.image && picker) picker.setCorrection(currentCorrectFn());
+  updateWbUI();
+  toast(`🎯 그레이카드 보정 적용 (추정 광원 ≈${est.cct}K)`, 'success');
+}
+
+/** 조명 UI 상태 동기화: 배지, 슬라이더, 프리셋 활성 표시 */
+function updateWbUI() {
+  const badge  = $('#wb-badge');
+  const slider = $('#kelvin-slider');
+  const label  = $('#kelvin-label');
+  const graycard = state.wbMode === 'graycard';
+
+  if (badge) {
+    badge.style.display = graycard ? '' : 'none';
+    if (graycard) badge.textContent = `🎯 그레이카드 보정 적용 중 — 추정 광원 ≈${state.wbCCT}K`;
+  }
+  if (slider) {
+    slider.disabled = graycard;
+    if (graycard && state.wbCCT) {
+      slider.value = Math.max(2500, Math.min(10000, state.wbCCT));
+      if (label) label.textContent = `≈${state.wbCCT}K`;
+    }
+  }
+  if (graycard) {
+    $$('.preset-btn').forEach(b => b.classList.remove('active'));
+    const desc = $('#lighting-desc');
+    if (desc) desc.textContent = `그레이카드 (≈${state.wbCCT}K)`;
   }
 }
 
@@ -483,7 +566,14 @@ function addLayer() {
   layer.matrix.hex = res.chipHex;
   layer.matrix.korName = res.korName;
   layer.matrix.deltaE = res.deltaE;
-  layer.matrix.lightingK = state.lightingK;
+  layer.matrix.lightingK = state.wbMode === 'graycard' ? state.wbCCT : state.lightingK;
+  layer.matrix.wb = {
+    mode: state.wbMode,
+    K: state.wbMode === 'kelvin' ? state.lightingK : null,
+    whitePoint: state.wbWhitePoint,
+    cct: state.wbCCT,
+  };
+  layer.matrix.sampleStats = res.sampleStats || null;
   layer.matrix.rgb = res.rgb;
   layer.matrix.pipeline = res.pipeline;
 

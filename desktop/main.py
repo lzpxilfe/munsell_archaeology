@@ -115,6 +115,15 @@ def run(debug=False, smoke=False):
             out.regionUsed = state.currentResult.sampleStats.used;
             out.statsShown = document.getElementById('sample-stats').style.display !== 'none';
 
+            // 그레이카드 WB: 웜 그레이 픽셀로 적용 → 상태/배지 → 슬라이더로 해제
+            applyGraycard({ r: 180, g: 150, b: 110 });
+            out.wbMode = state.wbMode;
+            out.wbCCT = state.wbCCT;
+            out.wbBadge = document.getElementById('wb-badge').style.display !== 'none';
+            setLighting(6504);
+            out.wbModeAfter = state.wbMode;
+            out.wbBadgeAfter = document.getElementById('wb-badge').style.display !== 'none';
+
             // 줌/팬
             picker.view.zoomAt(100, 50, 2);
             out.zoom = picker.view.zoomFactor;

@@ -1024,3 +1024,14 @@ body {
 }
 
 #sample-stats strong { color: var(--text-primary); }
+
+/* ─── 그레이카드 WB 배지 ─── */
+.wb-badge {
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--accent-gold);
+  background: rgba(196,154,78,0.10);
+  color: var(--accent-gold);
+  font-size: 0.72rem;
+  font-weight: 600;
+}

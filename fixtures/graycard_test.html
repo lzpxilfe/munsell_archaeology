@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>그레이카드 화이트밸런스 검증 (Graycard WB Test)</title>
+  <style>
+    body { font-family: 'JetBrains Mono', monospace, sans-serif; background: #1a1a1a; color: #e0e0e0; padding: 20px; }
+    h1 { color: #c4a44e; font-size: 1.1rem; margin-bottom: 4px; }
+    p.subtitle { color: #888; font-size: 0.75rem; margin-bottom: 16px; }
+    .pass { color: #6dbe6d; font-weight: bold; }
+    .fail { color: #e05858; font-weight: bold; }
+    table { border-collapse: collapse; font-size: 0.75rem; margin-top: 10px; }
+    th, td { padding: 4px 10px; border-bottom: 1px solid #2a2a2a; text-align: left; }
+    th { color: #c4a44e; }
+    .swatch { width: 20px; height: 20px; border-radius: 4px; border: 1px solid #444; display: inline-block; vertical-align: middle; }
+    #summary { margin-top: 16px; padding: 12px; background: #222; border-radius: 6px; font-size: 0.85rem; }
+  </style>
+  <script src="../js/illuminant.js"></script>
+  <script src="../js/chromAdapt.js"></script>
+  <script src="../js/nearestChip.js"></script>
+</head>
+<body>
+
+<h1>⬜ 그레이카드 화이트밸런스 검증</h1>
+<p class="subtitle">
+  시나리오: D65 정답 이미지에 Bradford 역변환으로 "텅스텐(4000K) 촬영본"을 합성 →<br>
+  합성 사진 속 회색 패치를 그레이카드로 클릭 → 광원 추정 → 전체 보정 → 원색 복원 여부 확인
+</p>
+
+<div id="output">⏳ 실행 중...</div>
+
+<script>
+(function run() {
+  const BASE_SOIL = [115, 92, 64];    // 10YR 4/3 (D65 정답)
+  const BASE_GRAY = [128, 128, 128];  // 회색 카드 (D65에서 무채색)
+  const SIM_K = 4000;                 // 촬영 광원
+
+  const toLab = (r, g, b) =>
+    Illuminant.XYZtoLab(Illuminant.sRGB255toXYZ_D65(r, g, b), Illuminant.WP_D65);
+  const dE = (rgb1, rgb2) => NearestChip.deltaE2000(toLab(...rgb1), toLab(...rgb2));
+
+  // D65 정답색 → "K 광원에서 촬영된 것처럼" 역변환
+  function shootUnderK(rgb, K) {
+    const xyz = Illuminant.sRGB255toXYZ_D65(rgb[0], rgb[1], rgb[2]);
+    const raw = ChromAdapt.bradford(xyz, Illuminant.WP_D65, ChromAdapt.kelvinToXYZ(K));
+    const s = Illuminant.XYZ_D65tosRGB255(raw.X, raw.Y, raw.Z);
+    return [s.r, s.g, s.b];
+  }
+
+  const shotSoil = shootUnderK(BASE_SOIL, SIM_K);
+  const shotGray = shootUnderK(BASE_GRAY, SIM_K);
+
+  const results = [];
+
+  // ── 1) 광원 추정: 합성 회색 패치 클릭
+  const est = ChromAdapt.estimateIlluminantFromGray(...shotGray);
+  results.push({
+    name: `광원 추정 (회색 패치, 실제 ${SIM_K}K)`,
+    detail: `추정 ≈${est.cct}K, 경고: ${est.warnings.join(', ') || '없음'}`,
+    pass: Math.abs(est.cct - SIM_K) <= 300 && !est.warnings.includes('not_neutral'),
+  });
+
+  // ── 2) 전체 보정 후 토색 복원
+  {
+    const data = new Uint8ClampedArray(16);
+    data[0] = shotSoil[0]; data[1] = shotSoil[1]; data[2] = shotSoil[2]; data[3] = 255;
+    data[4] = shotGray[0]; data[5] = shotGray[1]; data[6] = shotGray[2]; data[7] = 255;
+    const corrected = ChromAdapt.correctImageDataToD65(new ImageData(data, 4, 1), est.wp);
+    const soilOut = [corrected.data[0], corrected.data[1], corrected.data[2]];
+    const grayOut = [corrected.data[4], corrected.data[5], corrected.data[6]];
+    const dSoil = dE(soilOut, BASE_SOIL);
+    const dGray = dE(grayOut, BASE_GRAY);
+    results.push({
+      name: '토색 복원 (10YR 4/3)',
+      detail: `촬영값 rgb(${shotSoil}) → 보정 rgb(${soilOut}) vs 정답 rgb(${BASE_SOIL}) — dE00 ${dSoil.toFixed(2)}`,
+      pass: dSoil < 1.0,
+    });
+    results.push({
+      name: '회색 카드 중립 복원',
+      detail: `보정 rgb(${grayOut}) — dE00 ${dGray.toFixed(2)}`,
+      pass: dGray < 1.0,
+    });
+  }
+
+  // ── 3) 유채색(초록 잎) 클릭 → 플랑크 궤적에서 멀어 경고
+  {
+    const estBad = ChromAdapt.estimateIlluminantFromGray(60, 160, 60);
+    results.push({
+      name: '유채색 클릭 경고 (초록 잎)',
+      detail: `경고: ${estBad.warnings.join(', ') || '없음'} (Duv≈${isFinite(estBad.duv) ? estBad.duv.toFixed(3) : '∞'})`,
+      pass: estBad.warnings.includes('not_neutral'),
+    });
+  }
+
+  // ── 3b) 갈색 흙을 잘못 클릭 (텅스텐 촬영본) → 모호 구간이므로 suspicious_cct
+  //    ※ 갈색은 색도상 텅스텐 광원과 구분 불가능(둘 다 플랑크 궤적 위) —
+  //      확정 차단 대신 낮은 CCT 의심 경고가 최선
+  {
+    const estAmb = ChromAdapt.estimateIlluminantFromGray(...shotSoil);
+    results.push({
+      name: '갈색 흙 오클릭 (모호 구간 — 의심 경고)',
+      detail: `추정 ≈${estAmb.cct}K, 경고: ${estAmb.warnings.join(', ') || '없음'}`,
+      pass: estAmb.warnings.includes('suspicious_cct') || estAmb.warnings.includes('not_neutral'),
+    });
+  }
+
+  // ── 4) 클리핑 지점 거부
+  {
+    const estClip = ChromAdapt.estimateIlluminantFromGray(255, 255, 253);
+    results.push({
+      name: '과노출 클릭 경고',
+      detail: `경고: ${estClip.warnings.join(', ') || '없음'}`,
+      pass: estClip.warnings.includes('clipped_high'),
+    });
+  }
+
+  let html = '<table><thead><tr><th>테스트</th><th>상세</th><th>판정</th></tr></thead><tbody>';
+  let allPass = true;
+  for (const t of results) {
+    if (!t.pass) allPass = false;
+    html += `<tr><td>${t.name}</td><td style="color:#888">${t.detail}</td>
+      <td class="${t.pass ? 'pass' : 'fail'}">${t.pass ? '✓ 통과' : '✕ 실패'}</td></tr>`;
+  }
+  html += '</tbody></table>';
+  html += `<div id="summary"><span class="${allPass ? 'pass' : 'fail'}">
+    ${allPass ? '✓ 전체 통과' : '✕ 실패 있음'}</span>
+    — 기준: CCT ±300K, 복원 dE00 < 1.0, 경고 동작</div>`;
+  document.getElementById('output').innerHTML = html;
+})();
+</script>
+</body>
+</html>

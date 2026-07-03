@@ -40,7 +40,9 @@ const FieldRecord = (() => {
         hex:       '',
         korName:   '',
         deltaE:    null,
-        lightingK: 6504,
+        lightingK: 6504,   // 유효 색온도 (그레이카드 모드면 추정 CCT)
+        wb:        null,   // { mode:'kelvin'|'graycard', K, whitePoint, cct }
+        sampleStats: null, // 영역 평균일 때 픽셀 사용/제외 통계 (재현성)
         rgb:       null,
         pipeline:  null,   // 변환 파이프라인 중간값
       },

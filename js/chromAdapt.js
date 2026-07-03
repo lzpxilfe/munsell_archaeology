@@ -252,6 +252,75 @@ const ChromAdapt = (() => {
     return new ImageData(out, imageData.width, imageData.height);
   }
 
+  // ─── 그레이카드 화이트밸런스 ──────────────────────────────────────
+
+  /**
+   * McCamy(1992) 근사: CIE 1931 색도 (x,y) → 상관색온도(CCT)
+   * 유효 범위 약 2856–6504K 밖에서는 오차가 커진다 (표시용으로만 사용).
+   */
+  function xyToCCT(x, y) {
+    const n = (x - 0.3320) / (0.1858 - y);
+    return Math.round(449 * n ** 3 + 3525 * n ** 2 + 6823.3 * n + 5520.33);
+  }
+
+  /** CIE 1960 UCS 색도 (Duv 계산용) */
+  function _xyzToUV(xyz) {
+    const d = xyz.X + 15 * xyz.Y + 3 * xyz.Z;
+    return { u: 4 * xyz.X / d, v: 6 * xyz.Y / d };
+  }
+
+  /**
+   * 무채색(그레이카드) 픽셀로부터 촬영 광원 화이트포인트 추정
+   *
+   * 원리: 무채색 표면은 광원의 분광을 그대로 반사하므로, 카메라가
+   * 기록한 그 픽셀의 색도 ≈ 촬영 광원의 화이트포인트다.
+   * 반드시 **보정 전 원본** 픽셀(작은 영역 평균)을 넣을 것.
+   *
+   * 무채색 검증: 추정 색도가 플랑크 궤적(흑체 복사 궤적)에서 Duv 기준
+   * 얼마나 떨어져 있는지로 판정한다. 실제 광원은 궤적 근처에 있으므로
+   * 초록 잎·파란 방수포 등 유채색 물체를 클릭하면 잡아낼 수 있다.
+   * ⚠️ 한계: 갈색 토양은 색도상 텅스텐 광원과 구분 불가능(둘 다 궤적 위)
+   *   — 이 경우는 비정상적으로 낮은 CCT(< 3000K 부근)로만 의심 가능.
+   *
+   * @param {number} r,g,b  원본 sRGB [0–255]
+   * @returns {{ wp:{X,Y,Z}, cct:number, duv:number, warnings:string[] }}
+   *   warnings: 'clipped_high' | 'clipped_low' | 'not_neutral' | 'suspicious_cct'
+   */
+  function estimateIlluminantFromGray(r, g, b) {
+    const warnings = [];
+    const mx = Math.max(r, g, b);
+    if (mx >= 250) warnings.push('clipped_high');
+    if (mx <= 8)   warnings.push('clipped_low');
+
+    const xyz = Illuminant.sRGB255toXYZ_D65(r, g, b);
+    if (xyz.Y <= 1e-6) {
+      return { wp: { ...Illuminant.WP_D65 }, cct: 6504, duv: 0,
+               warnings: [...warnings, 'clipped_low'] };
+    }
+
+    // Y=1 정규화 → 화이트포인트 후보
+    const wp = { X: xyz.X / xyz.Y, Y: 1, Z: xyz.Z / xyz.Y };
+    const xy = Illuminant.XYZtoxyY(wp.X, wp.Y, wp.Z);
+    const cct = xyToCCT(xy.x, xy.y);
+
+    // 플랑크 궤적과의 거리 (CIE 1960 uv)
+    let duv = Infinity;
+    if (isFinite(cct) && cct >= 1000 && cct <= 25000) {
+      const uv1 = _xyzToUV(wp);
+      const uv2 = _xyzToUV(kelvinToXYZ(cct));
+      duv = Math.hypot(uv1.u - uv2.u, uv1.v - uv2.v);
+    }
+
+    if (!isFinite(cct) || cct < 2000 || cct > 15000 || duv > 0.02) {
+      warnings.push('not_neutral');
+    } else if (cct < 3000) {
+      // 갈색 물체 vs 텅스텐 광원의 모호 구간 — 확인 요청
+      warnings.push('suspicious_cct');
+    }
+
+    return { wp, cct, duv, warnings };
+  }
+
   // ─── sRGB255 픽셀 현장 보정 (캔버스 preview용) ──────────────────
 
   /**
@@ -285,6 +354,7 @@ const ChromAdapt = (() => {
     fieldLightingToD65, kelvinToXYZ,
     correctPixelForField, correctImageDataForField,
     buildCorrectionMatrix, correctImageDataToD65,
+    estimateIlluminantFromGray, xyToCCT,
     // Matrices (for testing)
     M_CAT02, M_CAT02_INV, M_BRADFORD, M_BRADFORD_INV,
   };
