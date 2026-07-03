@@ -38,15 +38,34 @@ xdg-open index.html       # Linux
 
 ---
 
+## 🖥️ 데스크톱 앱 (Windows exe)
+
+같은 앱을 **단일 포터블 exe**로도 쓸 수 있습니다 — 설치 불필요, 완전 오프라인,
+USB에 담아 현장 노트북으로 이동 가능.
+
+```bat
+:: 빌드 (Python 3.12+ 필요, 사용자는 Python 불필요)
+cd desktop
+build.bat
+:: → desktop\dist\MunsellSoilColor.exe (약 18MB)
+```
+
+개발 실행: `python desktop\main.py` · 자세한 내용은 [desktop/README.md](desktop/README.md)
+
+---
+
 ## 🎯 핵심 기능
 
-### 🖼️ 스포이드 (Color Picker)
+### 🖼️ 스포이드 & 영역 분석 (Color Picker / Region)
 
 | 기능 | 설명 |
 |---|---|
-| **Canvas 스포이드** | 이미지 위 클릭으로 픽셀 색 채취 |
+| **Canvas 스포이드** | 이미지 위 클릭으로 픽셀 색 채취 — 풀해상도 원본 픽셀 기준 |
 | **다중 픽셀 샘플링** | `1px` / `3×3` / `5×5` / `7×7` 평균 — 사진 노이즈 대응 |
+| **▭ 영역 평균 (사각형/올가미)** | 영역을 지정하면 **빛·그림자·이물을 자동 제외**한 로버스트 평균색 판별 (클리핑 가드 → L\* 트리밍 → 색도 이상치 제거 → linear RGB 평균) |
 | **🔍 돋보기(Magnifier)** | 커서 주변을 8배 확대, 정확한 위치 선택 지원 |
+| **🔎 줌/팬** | 휠 줌(최대 8×) + Space 드래그 이동 — 고해상도 토층 사진 정밀 선택 |
+| **📌 다중 지점 비교 (마커)** | 여러 지점/영역을 마커로 고정해 나란히 비교, 마커 간 **상호 ΔE2000**으로 "같은 층인가" 판단 지원 |
 | **화면 스포이드** | Chrome/Edge의 EyeDropper API로 화면 어디서나 색 추출 |
 | **드래그&드롭 / 붙여넣기** | `Ctrl+V`로 스크린샷 바로 분석 |
 
@@ -66,6 +85,15 @@ xdg-open index.html       # Linux
 
 보정 알고리즘: **Bradford Chromatic Adaptation Transform**
 > ISO 11664-6 / CIE 200:2011 기반. 촬영 조명의 화이트 포인트에서 D65로 색을 역변환합니다.
+
+#### ⬜ 그레이카드 화이트밸런스 (색온도 프리셋보다 정확)
+
+사진에 **회색 카드·컬러체커·무채색 물체**가 찍혀 있다면 그 지점을 클릭하는 것만으로
+촬영 광원을 직접 추정해 보정합니다. 색온도를 추측할 필요가 없어 가장 정확합니다.
+
+- 클릭 지점(9×9 평균)의 색도 → 광원 화이트포인트 추정 (McCamy CCT 표시)
+- 플랑크 궤적 거리(Duv) 검증으로 유채색 물체 오클릭 경고
+- 색온도 슬라이더와 상호배타 — 프리셋/슬라이더 조작 시 자동 해제
 
 ### 🎨 먼셀 변환 엔진
 
@@ -97,16 +125,37 @@ xdg-open index.html       # Linux
 ```
 munsell_archaeology/
 │
-├── 📄 index.html                ← 메인 앱 (단일 파일로 실행 가능)
+├── 📄 index.html                ← 메인 앱 (브라우저로 바로 실행 가능)
 │
 ├── 🎨 css/
 │   └── style.css                ← 다크/라이트 모드 UI
 │
-├── ⚙️ js/
-│   ├── colorTemp.js             ← 🌡️ 색온도 보정 엔진 (Bradford CAT)
-│   ├── munsellConverter.js      ← 🎯 RGB→먼셀 핵심 변환 + ΔE2000
-│   ├── colorPicker.js           ← 🖼️ Canvas 스포이드 + 돋보기
-│   └── app.js                   ← 🔗 앱 전체 로직
+├── ⚙️ js/                        ← 색채 엔진 (순수 계산, 브라우저 독립적)
+│   ├── illuminant.js            ← 🌈 CIE 색공간 변환 기초 (Illuminant C/D65)
+│   ├── chromAdapt.js            ← 🌡️ CAT02/Bradford 어댑테이션 + 그레이카드 WB
+│   ├── chipDatabase.js          ← 🗃️ 먼셀 칩 LUT (munsell.js 기준 재생성)
+│   ├── nearestChip.js           ← 📏 CIEDE2000 최근접 칩 검색
+│   ├── munsellConvert.js        ← 🎯 sRGB→먼셀 파이프라인 엔진
+│   ├── fieldRecord.js           ← 🗂️ USDA Field Book 층위 기록 스키마
+│   │                            ── UI 모듈 ──
+│   ├── imageView.js             ← 🔎 줌/팬 + 풀해상도 픽셀 캐시
+│   ├── colorPicker.js           ← 🖼️ 스포이드 + 돋보기 + 도구 라우팅
+│   ├── regionSelect.js          ← ▭ 영역 선택 + 로버스트 평균
+│   ├── markers.js               ← 📌 다중 지점 비교
+│   ├── desktopBridge.js         ← 🖥️ 데스크톱 셸 감지 + 파일 저장 브리지
+│   ├── app.js                   ← 🔗 앱 전체 로직
+│   └── vendor/munsell.min.js    ← 📦 munsell.js v1.1.6 로컬 번들 (오프라인)
+│
+├── 🖥️ desktop/                   ← Windows exe 셸 (pywebview + PyInstaller)
+│   ├── main.py · server.py · api.py · runtime_check.py
+│   └── munsell_desktop.spec · build.bat · README.md
+│
+├── 🧪 fixtures/                  ← 검증 픽스처 (브라우저로 열면 자동 실행)
+│   ├── roundtrip_test.html      ← 파이프라인 왕복 검증 (15/15 등가)
+│   ├── correction_equiv_test.html ← 보정 고속 경로 동등성
+│   ├── region_test.html         ← 영역 로버스트 평균
+│   ├── graycard_test.html       ← 그레이카드 WB
+│   └── known_chips.json         ← 기준 케이스 데이터
 │
 ├── 📖 README.md
 ├── ⚖️  LICENSE
