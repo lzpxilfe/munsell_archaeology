@@ -206,6 +206,20 @@ def run(debug=False, smoke=False):
             out.regionsClearedOnReset = hadRegions && state.layers.every(l => !l.region);
             out.layersKeptOnReset = state.layers.length === layersBeforeReset;
 
+            // ── 실물 토색첩 그리드 검증: 무작위 색 60개가 전부 그리드 안 값만 내는지 ──
+            {
+              const VALUE_STEPS = [2.5, 3, 4, 5, 6, 7, 8];
+              const CHROMA_STEPS = [1, 2, 3, 4, 6, 8];
+              let violations = 0;
+              for (let i = 0; i < 60; i++) {
+                const r = (i * 37) % 256, g = (i * 91 + 50) % 256, b = (i * 149 + 20) % 256;
+                const res = converter.analyze(r, g, b);
+                if (!VALUE_STEPS.includes(res.value)) violations++;
+                else if (!res.isNeutral && !CHROMA_STEPS.includes(res.chroma)) violations++;
+              }
+              out.gridViolations = violations;
+            }
+
             // 줌/팬
             picker.view.zoomAt(100, 50, 2);
             out.zoom = picker.view.zoomFactor;

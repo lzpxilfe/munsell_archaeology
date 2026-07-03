@@ -30,6 +30,20 @@
  * ─────────────────────────────────────────────────────────────────────
  */
 
+// ─── 실물 Munsell Soil Color Charts 그리드 ────────────────────────────
+// 실제 책은 페이지마다 Value 2.5~8(7단계), Chroma 1~8 중 짝수+1(6단계)의
+// 칩만 인쇄되어 있다 — Value 1/2/9나 Chroma 5/7 등은 책에 존재하지 않음.
+// _snapMhvc()와 chipDatabase.js 재생성 스크립트가 공통으로 이 그리드를
+// 기준으로 삼는다 (사용자 실측 확인 + NCSS-tech aqp getClosestMunsellChip()
+// 관례와 교차 검증됨).
+const VALUE_STEPS  = [2.5, 3, 4, 5, 6, 7, 8];
+const CHROMA_STEPS = [1, 2, 3, 4, 6, 8];
+
+/** x에 가장 가까운 steps 원소로 스냅 (동률이면 먼저 나오는 쪽) */
+function snapToStep(x, steps) {
+  return steps.reduce((best, s) => Math.abs(s - x) < Math.abs(best - x) ? s : best);
+}
+
 class MunsellConvert {
   constructor(chipDatabase) {
     this.chips    = chipDatabase;   // NearestChip 검색용 LUT
@@ -219,12 +233,13 @@ class MunsellConvert {
   /**
    * 연속 HVC → 토색첩(soil color chart) 표기 반올림
    *
-   * munsell.js는 '8.7YR 3.9/3.4'처럼 연속값을 반환하지만, 실물 토색첩
-   * 칩과 대조하는 현장 도구라는 목적상 표시·매칭에는 토색첩 규약을
-   * 따른다:
+   * munsell.js는 '8.7YR 3.9/3.4'처럼 연속값을 반환하지만, 실물 토색첩과
+   * 대조하는 현장 도구라는 목적상 표시·매칭에는 실물 책 그리드를 따른다
+   * (VALUE_STEPS/CHROMA_STEPS — 임의 정수 반올림 금지: 예를 들어
+   * chroma=6.6을 그냥 반올림하면 책에 없는 "7"이 나온다):
    *   - hue:    2.5 단위 (2.5 / 5 / 7.5 / 10)
-   *   - value:  정수 (1–9)
-   *   - chroma: 정수 (최소 1, 0.5 미만이면 무채색 N)
+   *   - value:  VALUE_STEPS 중 최근접 (0.5 미만 chroma는 무채색 N)
+   *   - chroma: CHROMA_STEPS 중 최근접
    *
    * @param {number} h100  hue (0–100; R→YR→Y→GY→G→BG→B→PB→P→RP 순)
    * @param {number} v     value (0–10)
@@ -232,7 +247,7 @@ class MunsellConvert {
    * @returns {string}  예: '10YR 4/3', 'N 5/'
    */
   _snapMhvc(h100, v, c) {
-    const value = Math.min(9, Math.max(1, Math.round(v)));
+    const value = snapToStep(v, VALUE_STEPS);
     if (c < 0.5) return `N ${value}/`;
 
     const FAMILIES = ['R', 'YR', 'Y', 'GY', 'G', 'BG', 'B', 'PB', 'P', 'RP'];
@@ -241,7 +256,7 @@ class MunsellConvert {
     let num = Math.round((h - idx * 10) / 2.5) * 2.5;
     if (num === 0) { num = 10; idx = (idx + 9) % 10; }
 
-    const chroma = Math.max(1, Math.round(c));
+    const chroma = snapToStep(c, CHROMA_STEPS);
     return `${num}${FAMILIES[idx]} ${value}/${chroma}`;
   }
 
