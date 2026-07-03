@@ -83,7 +83,7 @@ const NearestChip = (() => {
 
     const Cbp7 = Cbp ** 7;
     const R_T = -2 * Math.sqrt(Cbp7 / (Cbp7 + 25**7))
-      * Math.sin(60 * Math.exp(-((Hbp - 275) / 25)**2) * Math.PI / 180);
+      * Math.sin(60 * Math.exp(-(((Hbp - 275) / 25) ** 2)) * Math.PI / 180);
 
     return Math.sqrt(
       (dLp  / (k_L * S_L))**2 +
