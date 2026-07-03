@@ -76,6 +76,13 @@
 
       <!-- Image toolbar -->
       <div class="image-toolbar">
+        <span class="section-label">도구</span>
+        <button class="tool-chip active" data-tool="pick"  title="스포이드 — 클릭 지점의 색 채취">💧 스포이드</button>
+        <button class="tool-chip" data-tool="rect"  title="사각형 영역을 드래그 — 빛/그림자 제외 평균색">▭ 사각형</button>
+        <button class="tool-chip" data-tool="lasso" title="자유곡선으로 영역 지정 — 빛/그림자 제외 평균색">✎ 올가미</button>
+        <button class="tool-chip" data-tool="pan"   title="이미지 이동 (Space+드래그, 휠버튼 드래그도 가능)">✋ 이동</button>
+
+        <div style="width:1px;background:var(--border);height:18px;margin:0 4px"></div>
         <span class="section-label">샘플링 크기</span>
         <button class="sample-chip active" data-mode="1" title="단일 픽셀">1px</button>
         <button class="sample-chip" data-mode="2" title="3×3 평균">3×3</button>
@@ -139,6 +146,9 @@
             <span id="bd-chroma" class="bd-value">–</span>
           </div>
         </div>
+
+        <!-- 영역 평균 통계 (영역 선택 시에만 표시) -->
+        <div id="sample-stats" style="display:none"></div>
       </div>
 
       <!-- ── RGB / HEX values ── -->
@@ -330,6 +340,7 @@
 <script src="js/desktopBridge.js"></script>
 <script src="js/imageView.js"></script>
 <script src="js/colorPicker.js"></script>
+<script src="js/regionSelect.js"></script>
 <script src="js/app.js"></script>
 
 <!-- Sync munsell-code-small with munsell-code -->

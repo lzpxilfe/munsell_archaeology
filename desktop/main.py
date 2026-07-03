@@ -108,6 +108,13 @@ def run(debug=False, smoke=False):
             out.raw3200 = [p2.raw.r, p2.raw.g, p2.raw.b];
             setLighting(6504);
 
+            // 영역 평균 (사각형) — 툴바 흐름과 동일한 진입점
+            const avg = RegionStats.averageRect(picker.view.correctedImageData, 10, 10, 150, 80);
+            handleRegionResult(avg, { kind: 'rect', geometry: { x0: 10, y0: 10, x1: 150, y1: 80 } });
+            out.regionCode = state.currentResult.code;
+            out.regionUsed = state.currentResult.sampleStats.used;
+            out.statsShown = document.getElementById('sample-stats').style.display !== 'none';
+
             // 줌/팬
             picker.view.zoomAt(100, 50, 2);
             out.zoom = picker.view.zoomFactor;

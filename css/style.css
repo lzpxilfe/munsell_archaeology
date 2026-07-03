@@ -992,3 +992,35 @@ body {
   pointer-events: none;
   white-space: nowrap;
 }
+
+/* ─── Tool chips (스포이드/사각형/올가미/이동) ─── */
+.tool-chip {
+  padding: 4px 10px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: all var(--transition);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.tool-chip.active {
+  background: rgba(196,154,78,0.15);
+  border-color: var(--accent-gold);
+  color: var(--accent-gold);
+}
+
+/* ─── 영역 평균 통계 ─── */
+#sample-stats {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  font-size: 0.7rem;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+
+#sample-stats strong { color: var(--text-primary); }

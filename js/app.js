@@ -38,6 +38,7 @@ const LIGHTING_PRESETS = {
 const chipsDB = ChipDatabase.build();
 const converter = new MunsellConvert(chipsDB);
 let picker = null;
+let regionSelect = null;
 
 // ─── DOM refs ─────────────────────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
@@ -49,6 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupImageUpload();
   setupLightingControls();
   setupSamplingControls();
+  setupToolControls();
   setupLayerUI();
   setupExport();
   setupMiscControls();
@@ -100,6 +102,7 @@ function setupImageUpload() {
 
   // Init picker (ChromAdapt is used as the temperature corrector)
   picker = new ColorPicker(canvas, magnifier, magCanvas, handleColorPick);
+  regionSelect = new RegionSelect(picker, handleRegionResult);
 
   // Click on zone
   zone?.addEventListener('click', () => input?.click());
@@ -168,6 +171,7 @@ function showCanvas() {
 
 function clearImage() {
   state.image = null;
+  regionSelect?.clear();
   const zone = $('#upload-zone');
   const wrap = $('#canvas-wrapper');
   if (zone) zone.style.display = '';
@@ -235,6 +239,17 @@ function setupSamplingControls() {
   });
 }
 
+// ─── Tool Selection ───────────────────────────────────────────────────
+function setupToolControls() {
+  $$('.tool-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      picker?.setTool(chip.dataset.tool);
+      $$('.tool-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+    });
+  });
+}
+
 // ─── Color Pick Handler ───────────────────────────────────────────────
 /**
  * @param {{r,g,b, raw?}} color
@@ -244,9 +259,29 @@ function setupSamplingControls() {
 function handleColorPick({ r, g, b, raw }) {
   const result = converter.analyze(r, g, b);
   result.rawRgb = raw || null;   // 보정 전 원본 픽셀 (표시용)
+  result.sampleStats = null;     // 점 샘플 — 영역 통계 없음
 
   state.currentResult = result;
   renderResult(result);
+}
+
+/**
+ * 영역 선택(사각형/올가미) 결과 처리 — regionSelect.js 콜백
+ * @param {{r,g,b,stats}} avg     로버스트 평균색
+ * @param {{kind, geometry}} region  선택 영역 (마커 승격용)
+ */
+function handleRegionResult(avg, region) {
+  const result = converter.analyze(avg.r, avg.g, avg.b);
+  result.rawRgb = null;
+  result.sampleStats = avg.stats;
+  result.region = region;
+
+  state.currentResult = result;
+  renderResult(result);
+
+  const s = avg.stats;
+  const usedPct = Math.round(s.used / s.sampled * 100);
+  toast(`영역 평균: ${result.code} (픽셀 ${usedPct}% 사용)`, 'success');
 }
 
 // ─── Render Result ────────────────────────────────────────────────────
@@ -312,6 +347,9 @@ function renderResult(res) {
     badge.style.display = '';
   }
 
+  // 영역 평균 통계 (영역 선택일 때만)
+  renderSampleStats(res.sampleStats);
+
   // Candidates list
   renderCandidates(res.candidates);
 
@@ -323,6 +361,25 @@ function renderResult(res) {
 function setEl(id, val) {
   const el = document.getElementById(id);
   if (el) el.textContent = val;
+}
+
+function renderSampleStats(stats) {
+  const el = $('#sample-stats');
+  if (!el) return;
+  if (!stats) { el.style.display = 'none'; el.innerHTML = ''; return; }
+
+  const pct = n => stats.sampled ? Math.round(n / stats.sampled * 1000) / 10 : 0;
+  const parts = [];
+  if (stats.excludedHighlight) parts.push(`하이라이트 ${pct(stats.excludedHighlight)}%`);
+  if (stats.excludedShadow)    parts.push(`암부 클리핑 ${pct(stats.excludedShadow)}%`);
+  if (stats.excludedLstar)     parts.push(`명암 상·하위 ${pct(stats.excludedLstar)}%`);
+  if (stats.excludedChroma)    parts.push(`색도 이상 ${pct(stats.excludedChroma)}%`);
+
+  el.innerHTML = `📐 영역 ${stats.total.toLocaleString()}px`
+    + (stats.sampled < stats.total ? ` (표본 ${stats.sampled.toLocaleString()})` : '')
+    + ` — <strong>${pct(stats.used)}% 사용</strong>`
+    + (parts.length ? `<br>제외: ${parts.join(' · ')}` : '');
+  el.style.display = '';
 }
 
 // ─── Candidates ───────────────────────────────────────────────────────

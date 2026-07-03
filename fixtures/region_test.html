@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>영역 로버스트 평균 검증 (Region Robust Average Test)</title>
+  <style>
+    body { font-family: 'JetBrains Mono', monospace, sans-serif; background: #1a1a1a; color: #e0e0e0; padding: 20px; }
+    h1 { color: #c4a44e; font-size: 1.1rem; margin-bottom: 4px; }
+    p.subtitle { color: #888; font-size: 0.75rem; margin-bottom: 16px; }
+    .pass { color: #6dbe6d; font-weight: bold; }
+    .fail { color: #e05858; font-weight: bold; }
+    table { border-collapse: collapse; font-size: 0.75rem; margin-top: 10px; }
+    th, td { padding: 4px 10px; border-bottom: 1px solid #2a2a2a; text-align: left; }
+    th { color: #c4a44e; }
+    .swatch { width: 20px; height: 20px; border-radius: 4px; border: 1px solid #444; display: inline-block; vertical-align: middle; }
+    #summary { margin-top: 16px; padding: 12px; background: #222; border-radius: 6px; font-size: 0.85rem; }
+    canvas { border: 1px solid #444; margin-top: 12px; image-rendering: pixelated; }
+  </style>
+  <script src="../js/illuminant.js"></script>
+  <script src="../js/nearestChip.js"></script>
+  <script src="../js/regionSelect.js"></script>
+</head>
+<body>
+
+<h1>📐 영역 로버스트 평균 검증</h1>
+<p class="subtitle">
+  합성 이미지: 10YR 4/3 배경(rgb 115,92,64, ±6 노이즈) + 흰 반점 5% + 검은 반점 5% + 녹색 이물 5%<br>
+  기대: 로버스트 평균이 순수 배경색과 dE00 &lt; 1, 반점·이물은 제외 목록에 잡혀야 함
+</p>
+
+<div id="output">⏳ 실행 중...</div>
+<canvas id="preview" width="200" height="150"></canvas>
+
+<script>
+(function run() {
+  function mulberry32(a) {
+    return function() {
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      let t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  const rand = mulberry32(19430101);
+
+  const W = 400, H = 300;
+  const BASE = [115, 92, 64];   // 10YR 4/3 (munsell.js 기준 정답 sRGB)
+
+  // 합성 이미지 생성
+  const data = new Uint8ClampedArray(W * H * 4);
+  for (let i = 0; i < W * H; i++) {
+    const roll = rand();
+    let r, g, b;
+    if (roll < 0.05)      { r = 255; g = 255; b = 255; }          // 스펙큘러 하이라이트
+    else if (roll < 0.10) { r = 2;   g = 2;   b = 2;   }          // 깊은 그림자
+    else if (roll < 0.15) { r = 60;  g = 160; b = 60;  }          // 녹색 이물 (낙엽)
+    else {
+      const n = () => Math.round((rand() - 0.5) * 12);            // ±6 노이즈
+      r = BASE[0] + n(); g = BASE[1] + n(); b = BASE[2] + n();
+    }
+    data[i * 4] = r; data[i * 4 + 1] = g; data[i * 4 + 2] = b; data[i * 4 + 3] = 255;
+  }
+  const imageData = new ImageData(data, W, H);
+
+  // 미리보기
+  const pv = document.getElementById('preview');
+  pv.getContext('2d').putImageData(
+    (() => { const c = document.createElement('canvas'); c.width = W; c.height = H;
+             c.getContext('2d').putImageData(imageData, 0, 0);
+             return c.getContext('2d').getImageData(0, 0, W, H); })(), 0, 0);
+
+  // Lab 변환 헬퍼
+  const toLab = (r, g, b) =>
+    Illuminant.XYZtoLab(Illuminant.sRGB255toXYZ_D65(r, g, b), Illuminant.WP_D65);
+  const baseLab = toLab(...BASE);
+
+  const results = [];
+
+  // ── 테스트 1: 사각형 전체 영역
+  {
+    const avg = RegionStats.averageRect(imageData, 0, 0, W - 1, H - 1);
+    const dE = NearestChip.deltaE2000(baseLab, toLab(avg.r, avg.g, avg.b));
+    const excl = avg.stats.sampled - avg.stats.used;
+    const exclPct = excl / avg.stats.sampled * 100;
+    results.push({
+      name: '사각형 (전체, 이물 15% 혼입)',
+      rgb: [avg.r, avg.g, avg.b], dE,
+      detail: `사용 ${avg.stats.used}/${avg.stats.sampled} (제외 ${exclPct.toFixed(1)}%) — ` +
+              `하이라이트 ${avg.stats.excludedHighlight}, 암부 ${avg.stats.excludedShadow}, ` +
+              `트리밍 ${avg.stats.excludedLstar}, 색도 ${avg.stats.excludedChroma}`,
+      pass: dE < 1.0 && exclPct > 10,   // 이물 15% 중 상당수를 제외했어야 함
+    });
+  }
+
+  // ── 테스트 2: 올가미 (삼각형)
+  {
+    const pts = [{ ix: 40, iy: 30 }, { ix: 360, iy: 60 }, { ix: 200, iy: 280 }];
+    const avg = RegionStats.averagePolygon(imageData, pts);
+    const dE = NearestChip.deltaE2000(baseLab, toLab(avg.r, avg.g, avg.b));
+    results.push({
+      name: '올가미 (삼각형)',
+      rgb: [avg.r, avg.g, avg.b], dE,
+      detail: `영역 ${avg.stats.total}px, 사용 ${avg.stats.used}/${avg.stats.sampled}`,
+      pass: dE < 1.0,
+    });
+  }
+
+  // ── 테스트 3: 깨끗한 배경만 있는 순수 영역 (제외가 거의 없어야 함)
+  {
+    const clean = new Uint8ClampedArray(100 * 100 * 4);
+    for (let i = 0; i < 100 * 100; i++) {
+      clean[i * 4] = BASE[0]; clean[i * 4 + 1] = BASE[1]; clean[i * 4 + 2] = BASE[2]; clean[i * 4 + 3] = 255;
+    }
+    const avg = RegionStats.averageRect(new ImageData(clean, 100, 100), 0, 0, 99, 99);
+    const dE = NearestChip.deltaE2000(baseLab, toLab(avg.r, avg.g, avg.b));
+    results.push({
+      name: '균일 영역 (노이즈 없음)',
+      rgb: [avg.r, avg.g, avg.b], dE,
+      detail: `사용 ${avg.stats.used}/${avg.stats.sampled}`,
+      pass: dE < 0.3,
+    });
+  }
+
+  // 출력
+  let html = '<table><thead><tr><th>테스트</th><th>결과색</th><th>RGB</th><th>dE00 (vs 배경)</th><th>상세</th><th>판정</th></tr></thead><tbody>';
+  let allPass = true;
+  for (const t of results) {
+    if (!t.pass) allPass = false;
+    const hex = '#' + t.rgb.map(v => v.toString(16).padStart(2, '0')).join('');
+    html += `<tr>
+      <td>${t.name}</td>
+      <td><span class="swatch" style="background:${hex}"></span></td>
+      <td>rgb(${t.rgb.join(',')})</td>
+      <td>${t.dE.toFixed(2)}</td>
+      <td style="color:#888">${t.detail}</td>
+      <td class="${t.pass ? 'pass' : 'fail'}">${t.pass ? '✓ 통과' : '✕ 실패'}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  html += `<div id="summary"><span class="${allPass ? 'pass' : 'fail'}">
+    ${allPass ? '✓ 전체 통과' : '✕ 실패 있음'}</span> — 기준: 오염 영역 dE00 < 1.0, 균일 영역 dE00 < 0.3</div>`;
+  document.getElementById('output').innerHTML = html;
+})();
+</script>
+</body>
+</html>
