@@ -598,9 +598,11 @@ body {
   border: 1px solid;
 }
 
-.delta-e-badge.good   { color: #6dbe6d; border-color: rgba(109,190,109,0.3); background: rgba(109,190,109,0.1); }
-.delta-e-badge.fair   { color: #e0b84a; border-color: rgba(224,184,74,0.3); background: rgba(224,184,74,0.1); }
-.delta-e-badge.poor   { color: #e07858; border-color: rgba(224,120,88,0.3); background: rgba(224,120,88,0.1); }
+.delta-e-badge.perfect { color: #5cdd8d; border-color: rgba(92,221,141,0.4); background: rgba(92,221,141,0.15); font-weight: 600; }
+.delta-e-badge.good    { color: #6dbe6d; border-color: rgba(109,190,109,0.3); background: rgba(109,190,109,0.1); }
+.delta-e-badge.fair    { color: #e0b84a; border-color: rgba(224,184,74,0.3); background: rgba(224,184,74,0.1); }
+.delta-e-badge.warn    { color: #e69d45; border-color: rgba(230,157,69,0.3); background: rgba(230,157,69,0.1); }
+.delta-e-badge.poor    { color: #e07858; border-color: rgba(224,120,88,0.3); background: rgba(224,120,88,0.1); }
 
 /* Sampling options */
 .sample-options {

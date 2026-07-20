@@ -570,7 +570,7 @@ function renderResult(res) {
   // ΔE accuracy badge
   const badge = $('#delta-badge');
   if (badge) {
-    badge.textContent = `ΔE ${res.deltaE} — ${res.accuracy.label}`;
+    badge.textContent = `${res.accuracy.icon} ΔE ${res.deltaE} — ${res.accuracy.label}`;
     badge.className = `delta-e-badge ${res.accuracy.cls}`;
     badge.style.display = '';
   }
@@ -622,14 +622,15 @@ function renderCandidates(candidates) {
   list.innerHTML = '';
 
   candidates.forEach((c, i) => {
+    const acc = NearestChip.accuracy(c.dE);
     const div = document.createElement('div');
     div.className = `candidate-item${c.equivalent ? ' best' : ''}`;
     div.innerHTML = `
       <div class="cand-swatch" style="background:${c.hex}"></div>
       <div class="cand-info">
         <span class="cand-code">${c.code}</span>
-        <span class="cand-de ${c.equivalent ? 'good' : c.dE < NearestChip.EQUIVALENCE_THRESHOLD * 1.6 ? 'fair' : 'poor'}">
-          ΔE ${c.dE.toFixed(1)} ${c.equivalent ? '(등가)' : ''}
+        <span class="cand-de ${acc.cls}">
+          ${acc.icon} ΔE ${c.dE.toFixed(1)} (${acc.label})
         </span>
       </div>
     `;
