@@ -247,6 +247,14 @@ function resetPerImageState() {
   if (addBtn) addBtn.disabled = true;
   renderSampleStats(null);
 
+  // 진행 중이던 CCM 보정 상태 초기화
+  if (state.ccmCalibrating) {
+    state.ccmCalibrating = false;
+    state.ccmPoints = [];
+    const banner = $('#ccm-banner');
+    if (banner) banner.style.display = 'none';
+  }
+
   // 층위 기록 자체는 유지하되, 이전 사진에 고정된 경계는 새 사진에 의미가
   // 없으므로 해제한다 (기록이 새 사진 것처럼 잘못 표시되는 걸 방지)
   const hadBoundaries = state.layers.some(l => l.region);
