@@ -1422,20 +1422,22 @@ function renderMoistureEstimator(res) {
 
 function setupScienceWidget() {
   const widget = $('#science-guide-widget');
-  const toggleBtn = $('#widget-toggle-btn');
+  const toggleBtn = $('#science-guide-toggle-btn');
   const minimizeBtn = $('#widget-minimize-btn');
   
   if (toggleBtn && widget) {
     toggleBtn.addEventListener('click', () => {
-      widget.classList.remove('collapsed');
-      picker?.view.render(); // Redraw canvas on layout adjustment
+      if (widget.style.display === 'none') {
+        widget.style.display = 'flex';
+      } else {
+        widget.style.display = 'none';
+      }
     });
   }
   
   if (minimizeBtn && widget) {
     minimizeBtn.addEventListener('click', () => {
-      widget.classList.add('collapsed');
-      picker?.view.render();
+      widget.style.display = 'none';
     });
   }
   
@@ -1457,5 +1459,38 @@ function setupScienceWidget() {
       });
     });
   });
+
+  // Expose global actions for interactive widget buttons
+  window.selectTool = function(toolName) {
+    const chip = $(`.tool-chip[data-tool="${toolName}"]`);
+    if (chip) {
+      chip.click();
+      toast(`🛠️ ${chip.textContent.trim()} 도구가 선택되었습니다.`, 'info');
+    }
+  };
+
+  window.startCcmFromWidget = function() {
+    const startBtn = $('#ccm-calibrate-btn');
+    if (startBtn) {
+      if (!state.image) {
+        toast('컬러체커 보정을 시작하려면 먼저 사진을 로드해 주세요.', 'error');
+        return;
+      }
+      startBtn.click();
+    }
+  };
+
+  window.focusVignetteSlider = function() {
+    const slider = $('#vignette-slider');
+    if (slider) {
+      slider.focus();
+      slider.style.outline = '2px solid var(--accent-gold)';
+      slider.style.outlineOffset = '2px';
+      setTimeout(() => {
+        slider.style.outline = 'none';
+      }, 1500);
+      toast('비네팅 보정 슬라이더가 강조 표시되었습니다.', 'info');
+    }
+  };
 }
 

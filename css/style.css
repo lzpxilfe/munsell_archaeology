@@ -652,6 +652,9 @@ body {
 
 .form-input {
   flex: 1;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -1352,10 +1355,10 @@ body {
 
 /* ─── Floating Science Guide Widget ─── */
 .science-guide-widget {
-  position: absolute;
-  bottom: 40px;
-  right: 15px;
-  z-index: 100;
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 1000; /* Float over everything */
   width: 320px;
   background: rgba(30, 27, 24, 0.95);
   border: 1px solid rgba(196, 154, 78, 0.3);
@@ -1366,40 +1369,6 @@ body {
   backdrop-filter: blur(10px);
   display: flex;
   flex-direction: column;
-}
-
-.science-guide-widget.collapsed {
-  width: 130px;
-  height: 32px;
-  border-radius: 16px;
-  background: var(--accent-gold);
-  border: none;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-  bottom: 40px;
-}
-
-.widget-toggle-btn {
-  width: 100%;
-  height: 100%;
-  background: none;
-  border: none;
-  color: #1a1714;
-  font-weight: 700;
-  font-size: 0.75rem;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 0 10px;
-}
-
-.science-guide-widget.collapsed .widget-content {
-  display: none;
-}
-
-.science-guide-widget:not(.collapsed) .widget-toggle-btn {
-  display: none;
 }
 
 .widget-content {
@@ -1526,6 +1495,28 @@ body {
   accent-color: var(--accent-gold);
   margin-top: 2px;
   flex-shrink: 0;
+}
+
+/* Action buttons in science widget */
+.btn-widget-action {
+  width: 100%;
+  margin-top: 8px;
+  background: rgba(196, 154, 78, 0.1);
+  border: 1px solid rgba(196, 154, 78, 0.4);
+  color: var(--accent-gold);
+  font-size: 0.68rem;
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+  font-weight: 600;
+  text-align: center;
+}
+
+.btn-widget-action:hover {
+  background: var(--accent-gold);
+  color: #1a1714;
 }
 
 
