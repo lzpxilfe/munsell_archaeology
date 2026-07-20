@@ -1350,5 +1350,157 @@ body {
   gap: 4px;
 }
 
+/* ─── Floating Science Guide Widget ─── */
+.science-guide-widget {
+  position: absolute;
+  bottom: 40px;
+  right: 15px;
+  z-index: 100;
+  width: 320px;
+  background: rgba(30, 27, 24, 0.95);
+  border: 1px solid rgba(196, 154, 78, 0.3);
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  overflow: hidden;
+  backdrop-filter: blur(10px);
+  display: flex;
+  flex-direction: column;
+}
+
+.science-guide-widget.collapsed {
+  width: 130px;
+  height: 32px;
+  border-radius: 16px;
+  background: var(--accent-gold);
+  border: none;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  bottom: 40px;
+}
+
+.widget-toggle-btn {
+  width: 100%;
+  height: 100%;
+  background: none;
+  border: none;
+  color: #1a1714;
+  font-weight: 700;
+  font-size: 0.75rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 10px;
+}
+
+.science-guide-widget.collapsed .widget-content {
+  display: none;
+}
+
+.science-guide-widget:not(.collapsed) .widget-toggle-btn {
+  display: none;
+}
+
+.widget-content {
+  display: flex;
+  flex-direction: column;
+  height: 380px;
+}
+
+.widget-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(196, 154, 78, 0.1);
+  border-bottom: 1px solid rgba(196, 154, 78, 0.2);
+}
+
+.widget-header h3 {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--accent-gold);
+}
+
+.widget-min-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.widget-min-btn:hover {
+  color: var(--text-primary);
+}
+
+.widget-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-color);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.widget-tab-btn {
+  flex: 1;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  padding: 6px 2px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.widget-tab-btn:hover {
+  color: var(--text-primary);
+}
+
+.widget-tab-btn.active {
+  color: var(--accent-gold);
+  border-bottom-color: var(--accent-gold);
+  font-weight: 700;
+}
+
+.widget-body {
+  flex: 1;
+  padding: 12px;
+  overflow-y: auto;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  text-align: left;
+}
+
+.widget-tab-content {
+  display: none;
+}
+
+.widget-tab-content.active {
+  display: block;
+}
+
+.widget-tab-content h4 {
+  margin: 0 0 6px 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.widget-tab-content p {
+  margin: 0 0 8px 0;
+}
+
+.widget-tab-content ul {
+  padding-left: 14px;
+  margin: 6px 0;
+}
+
+.widget-tab-content li {
+  margin-bottom: 4px;
+}
+
 
 

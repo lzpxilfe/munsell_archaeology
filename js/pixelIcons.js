@@ -961,7 +961,7 @@
         
         // Skip elements where we shouldn't execute rendering
         const tag = parent.tagName.toLowerCase();
-        if (tag === 'script' || tag === 'style' || tag === 'textarea' || tag === 'code' || tag === 'pre' || tag === 'svg' || parent.closest('.pixel-icon')) {
+        if (tag === 'script' || tag === 'style' || tag === 'textarea' || tag === 'code' || tag === 'pre' || tag === 'svg' || tag === 'option' || tag === 'select' || tag === 'title' || parent.closest('.pixel-icon')) {
           continue;
         }
 
