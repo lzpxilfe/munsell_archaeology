@@ -878,7 +878,7 @@
   // Build the SVG code from the grid representation
   function compileSvg(emoji, grid) {
     const size = 16;
-    let svg = `<svg viewBox="0 0 ${size} ${size}" class="pixel-icon" data-emoji="${emoji}" shape-rendering="crispEdges">`;
+    let svg = `<svg viewBox="0 0 ${size} ${size}" class="pixel-icon" shape-rendering="crispEdges">`;
     
     for (let y = 0; y < size; y++) {
       const row = grid[y];
