@@ -329,28 +329,35 @@
       <div class="add-layer-form">
         <div class="form-row">
           <label>층위번호</label>
-          <input id="layer-num" class="form-input" type="text" placeholder="예: 1, 2, 3…" style="width:80px;flex:none">
-          <input id="layer-desc" class="form-input" type="text" placeholder="색 설명 (선택)">
+          <input id="layer-num" class="form-input" type="text" placeholder="예: 1, 2, 3…">
+        </div>
+        <div class="form-row">
+          <label>색 설명</label>
+          <input id="layer-desc" class="form-input" type="text" placeholder="색상 부연 설명 (선택)">
         </div>
         <div class="form-row">
           <label>토양 상태</label>
-          <select id="layer-condition" class="form-input" style="flex:1">
+          <select id="layer-condition" class="form-input">
             <option value="moist" selected>습윤 (Moist)</option>
             <option value="dry">건조 (Dry)</option>
             <option value="wet">포화 (Wet)</option>
           </select>
-          <label style="margin-left:8px;flex:none">깊이(cm)</label>
-          <input id="layer-depth-top" class="form-input" type="number" placeholder="상" style="width:50px;flex:none">
-          <span style="align-self:center;margin:0 2px;color:var(--text-muted)">–</span>
-          <input id="layer-depth-bottom" class="form-input" type="number" placeholder="하" style="width:50px;flex:none">
+        </div>
+        <div class="form-row">
+          <label>깊이 (cm)</label>
+          <div style="display:flex;align-items:center;gap:4px;flex:1">
+            <input id="layer-depth-top" class="form-input" type="number" placeholder="상" style="flex:1;min-width:0">
+            <span style="color:var(--text-muted)">–</span>
+            <input id="layer-depth-bottom" class="form-input" type="number" placeholder="하" style="flex:1;min-width:0">
+          </div>
         </div>
         <div class="form-row">
           <label>메모</label>
           <input id="layer-memo" class="form-input" type="text" placeholder="다짐 정도, 포함물 등">
         </div>
-        <div class="form-row" style="margin-top:2px;margin-bottom:8px">
-          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:0.72rem;color:var(--text-secondary)">
-            <input id="layer-normalize-moisture" type="checkbox" style="accent-color:var(--accent-gold);margin:0">
+        <div class="form-row-checkbox">
+          <label class="checkbox-label">
+            <input id="layer-normalize-moisture" type="checkbox">
             <span>건조 측정 시 습윤 상태로 자동 정규화 기록</span>
           </label>
         </div>

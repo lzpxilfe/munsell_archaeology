@@ -1502,5 +1502,31 @@ body {
   margin-bottom: 4px;
 }
 
+/* Checkbox row in forms */
+.form-row-checkbox {
+  display: flex;
+  align-items: flex-start;
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+
+.form-row-checkbox label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  width: auto !important; /* Force width auto to override default label width */
+  flex-shrink: 1;
+}
+
+.form-row-checkbox input[type="checkbox"] {
+  accent-color: var(--accent-gold);
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
 
 
