@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>컬러체커 CCM 매트릭스 솔버 검증 (CCM Solver Test)</title>
+  <style>
+    body { font-family: 'JetBrains Mono', monospace, sans-serif; background: #1a1a1a; color: #e0e0e0; padding: 20px; }
+    h1 { color: #c49a4e; font-size: 1.1rem; margin-bottom: 4px; }
+    p.subtitle { color: #888; font-size: 0.75rem; margin-bottom: 16px; }
+    .pass { color: #6dbe6d; font-weight: bold; }
+    .fail { color: #e05858; font-weight: bold; }
+    table { border-collapse: collapse; font-size: 0.75rem; margin-top: 10px; margin-bottom: 24px; width: 100%; }
+    th, td { padding: 6px 12px; border-bottom: 1px solid #2a2a2a; text-align: left; }
+    th { color: #c49a4e; }
+    .swatch { display: inline-block; width: 14px; height: 14px; border: 1px solid #000; vertical-align: middle; margin-right: 6px; border-radius: 2px; }
+    .summary { margin-top: 8px; padding: 12px; background: #222; border-radius: 6px; font-size: 0.85rem; border-left: 4px solid var(--border-color, #444); }
+    .suite-title { color: #e0e0e0; font-size: 0.95rem; font-weight: 700; margin-top: 20px; margin-bottom: 4px; border-bottom: 2px solid #333; padding-bottom: 4px; }
+  </style>
+  <script src="../js/ccmSolver.js"></script>
+</head>
+<body>
+
+<h1>🎨 컬러체커 CCM 매트릭스 솔버 검증</h1>
+<p class="subtitle">
+  동작: 임의의 카메라 왜곡 행렬(화이트 밸런스 쏠림 + 채널 간 간섭)을 적용한 모조 카메라 입력값을 생성하고,<br>
+   이를 CCMSolver.solve()에 입력하여 도출한 보정 행렬이 원본 참조 색상으로 정확히 역매핑하는지 검증합니다.
+</p>
+
+<div id="output">⏳ 테스트 실행 중...</div>
+
+<script>
+(function run() {
+  const M_distortion = [
+    [0.85, 0.05, 0.02],
+    [0.08, 0.95, 0.05],
+    [0.02, 0.10, 0.90]
+  ];
+
+  let outputHtml = "";
+  let overallPass = true;
+
+  // ----------------------------------------------------
+  // TEST SUITE 1: 6-Patch Scale Card
+  // ----------------------------------------------------
+  {
+    const refRGBs = CCMSolver.REF_COLORS_SRGB;
+    const camRGBs = refRGBs.map(rgb => {
+      const r_lin = CCMSolver.srgbToLinear(rgb[0]);
+      const g_lin = CCMSolver.srgbToLinear(rgb[1]);
+      const b_lin = CCMSolver.srgbToLinear(rgb[2]);
+
+      const dr_lin = M_distortion[0][0]*r_lin + M_distortion[0][1]*g_lin + M_distortion[0][2]*b_lin;
+      const dg_lin = M_distortion[1][0]*r_lin + M_distortion[1][1]*g_lin + M_distortion[1][2]*b_lin;
+      const db_lin = M_distortion[2][0]*r_lin + M_distortion[2][1]*g_lin + M_distortion[2][2]*b_lin;
+
+      return [
+        CCMSolver.linearToSrgb(dr_lin),
+        CCMSolver.linearToSrgb(dg_lin),
+        CCMSolver.linearToSrgb(db_lin)
+      ];
+    });
+
+    const CCM = CCMSolver.solve(camRGBs, '6patch');
+    let suiteHtml = `<div class="suite-title">Test Suite 1: 6-Patch Archaeological Scale Card</div>`;
+    
+    if (!CCM) {
+      suiteHtml += `<div class="fail">Suite 1 실패: 행렬 솔버 오류</div>`;
+      outputHtml += suiteHtml;
+      overallPass = false;
+    } else {
+      suiteHtml += `
+        <table>
+          <thead>
+            <tr>
+              <th>패치 번호</th>
+              <th>표준 기준 (sRGB)</th>
+              <th>센서 왜곡 (sRGB)</th>
+              <th>CCM 보정 후 (sRGB)</th>
+              <th>오차 (RGB 차합)</th>
+              <th>상태</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+      let totalDiff = 0;
+      let passes = 0;
+
+      refRGBs.forEach((ref, i) => {
+        const cam = camRGBs[i];
+        const r_lin = CCMSolver.srgbToLinear(cam[0]);
+        const g_lin = CCMSolver.srgbToLinear(cam[1]);
+        const b_lin = CCMSolver.srgbToLinear(cam[2]);
+        const [cr_lin, cg_lin, cb_lin] = CCMSolver.correctPixel(r_lin, g_lin, b_lin, CCM);
+
+        const corrected = [
+          CCMSolver.linearToSrgb(cr_lin),
+          CCMSolver.linearToSrgb(cg_lin),
+          CCMSolver.linearToSrgb(cb_lin)
+        ];
+
+        const diff = Math.abs(ref[0] - corrected[0]) + Math.abs(ref[1] - corrected[1]) + Math.abs(ref[2] - corrected[2]);
+        totalDiff += diff;
+        const isPass = diff < 5;
+        if (isPass) passes++;
+
+        const refHex = `rgb(${ref.join(',')})`;
+        const camHex = `rgb(${cam.join(',')})`;
+        const corHex = `rgb(${corrected.join(',')})`;
+
+        suiteHtml += `
+          <tr>
+            <td>패치 ${i + 1}</td>
+            <td><span class="swatch" style="background:${refHex}"></span>[${ref.join(', ')}]</td>
+            <td><span class="swatch" style="background:${camHex}"></span>[${cam.join(', ')}]</td>
+            <td><span class="swatch" style="background:${corHex}"></span>[${corrected.join(', ')}]</td>
+            <td>${diff}</td>
+            <td class="${isPass ? 'pass' : 'fail'}">${isPass ? 'PASS' : 'FAIL'}</td>
+          </tr>
+        `;
+      });
+
+      suiteHtml += `</tbody></table>`;
+      const allPass = passes === 6;
+      if (!allPass) overallPass = false;
+      
+      suiteHtml += `
+        <div class="summary" style="border-left-color: ${allPass ? '#6dbe6d' : '#e05858'}">
+          <strong>Suite 1 요약:</strong> 보정 성공 패치 ${passes}/6 | 총 오차합: ${totalDiff} | 상태: <span class="${allPass ? 'pass' : 'fail'}">${allPass ? 'SUCCESS' : 'FAILURE'}</span>
+        </div>
+      `;
+      outputHtml += suiteHtml;
+    }
+  }
+
+  // ----------------------------------------------------
+  // TEST SUITE 2: 24-Patch Macbeth ColorChecker
+  // ----------------------------------------------------
+  {
+    const refRGBs = CCMSolver.MACBETH_COLORS_SRGB;
+    const camRGBs = refRGBs.map(rgb => {
+      const r_lin = CCMSolver.srgbToLinear(rgb[0]);
+      const g_lin = CCMSolver.srgbToLinear(rgb[1]);
+      const b_lin = CCMSolver.srgbToLinear(rgb[2]);
+
+      const dr_lin = M_distortion[0][0]*r_lin + M_distortion[0][1]*g_lin + M_distortion[0][2]*b_lin;
+      const dg_lin = M_distortion[1][0]*r_lin + M_distortion[1][1]*g_lin + M_distortion[1][2]*b_lin;
+      const db_lin = M_distortion[2][0]*r_lin + M_distortion[2][1]*g_lin + M_distortion[2][2]*b_lin;
+
+      return [
+        CCMSolver.linearToSrgb(dr_lin),
+        CCMSolver.linearToSrgb(dg_lin),
+        CCMSolver.linearToSrgb(db_lin)
+      ];
+    });
+
+    const CCM = CCMSolver.solve(camRGBs, 'macbeth');
+    let suiteHtml = `<div class="suite-title">Test Suite 2: 24-Patch Macbeth ColorChecker Grid</div>`;
+    
+    if (!CCM) {
+      suiteHtml += `<div class="fail">Suite 2 실패: 행렬 솔버 오류</div>`;
+      outputHtml += suiteHtml;
+      overallPass = false;
+    } else {
+      suiteHtml += `
+        <table>
+          <thead>
+            <tr>
+              <th>패치 번호</th>
+              <th>표준 기준 (sRGB)</th>
+              <th>센서 왜곡 (sRGB)</th>
+              <th>CCM 보정 후 (sRGB)</th>
+              <th>오차 (RGB 차합)</th>
+              <th>상태</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+      let totalDiff = 0;
+      let passes = 0;
+
+      refRGBs.forEach((ref, i) => {
+        const cam = camRGBs[i];
+        const r_lin = CCMSolver.srgbToLinear(cam[0]);
+        const g_lin = CCMSolver.srgbToLinear(cam[1]);
+        const b_lin = CCMSolver.srgbToLinear(cam[2]);
+        const [cr_lin, cg_lin, cb_lin] = CCMSolver.correctPixel(r_lin, g_lin, b_lin, CCM);
+
+        const corrected = [
+          CCMSolver.linearToSrgb(cr_lin),
+          CCMSolver.linearToSrgb(cg_lin),
+          CCMSolver.linearToSrgb(cb_lin)
+        ];
+
+        const diff = Math.abs(ref[0] - corrected[0]) + Math.abs(ref[1] - corrected[1]) + Math.abs(ref[2] - corrected[2]);
+        totalDiff += diff;
+        
+        // 허용 오차: 소수점 감마 연산 반올림 오차가 24개 누적되므로 패치별 총합 5 미만 적용
+        const isPass = diff < 5;
+        if (isPass) passes++;
+
+        const refHex = `rgb(${ref.join(',')})`;
+        const camHex = `rgb(${cam.join(',')})`;
+        const corHex = `rgb(${corrected.join(',')})`;
+
+        // 가시성 조절을 위해 처음 6개와 마지막 2개 위주로 출력 (전체는 summary에서 합산)
+        if (i < 6 || i >= 22) {
+          suiteHtml += `
+            <tr>
+              <td>패치 ${i + 1}</td>
+              <td><span class="swatch" style="background:${refHex}"></span>[${ref.join(', ')}]</td>
+              <td><span class="swatch" style="background:${camHex}"></span>[${cam.join(', ')}]</td>
+              <td><span class="swatch" style="background:${corHex}"></span>[${corrected.join(', ')}]</td>
+              <td>${diff}</td>
+              <td class="${isPass ? 'pass' : 'fail'}">${isPass ? 'PASS' : 'FAIL'}</td>
+            </tr>
+          `;
+        } else if (i === 6) {
+          suiteHtml += `<tr><td colspan="6" style="text-align:center;color:#666">... 패치 7 ~ 22 생략 ...</td></tr>`;
+        }
+      });
+
+      suiteHtml += `</tbody></table>`;
+      const allPass = passes === 24;
+      if (!allPass) overallPass = false;
+      
+      suiteHtml += `
+        <div class="summary" style="border-left-color: ${allPass ? '#6dbe6d' : '#e05858'}">
+          <strong>Suite 2 요약:</strong> 보정 성공 패치 ${passes}/24 | 총 오차합: ${totalDiff} | 상태: <span class="${allPass ? 'pass' : 'fail'}">${allPass ? 'SUCCESS' : 'FAILURE'}</span>
+        </div>
+      `;
+      outputHtml += suiteHtml;
+    }
+  }
+
+  // ----------------------------------------------------
+  // OVERALL STATUS
+  // ----------------------------------------------------
+  const finalSummary = `
+    <div class="summary" style="margin-top:24px;border-left-width: 6px;border-left-color: ${overallPass ? '#6dbe6d' : '#e05858'};background:#111">
+      <strong>최종 테스트 검증 결과:</strong> <span class="${overallPass ? 'pass' : 'fail'}" style="font-size: 1rem">${overallPass ? '✓ ALL PASSED (통과)' : '✕ FAILED (실패)'}</span>
+    </div>
+  `;
+  document.getElementById('output').innerHTML = outputHtml + finalSummary;
+})();
+</script>
+
+</body>
+</html>

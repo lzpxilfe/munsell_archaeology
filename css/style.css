@@ -1096,3 +1096,259 @@ body {
 .cmp-same { color: #6dbe6d; font-weight: 600; }
 .cmp-near { color: #e0b84a; font-weight: 600; }
 .cmp-diff { color: #e07858; font-weight: 600; }
+
+/* ─── 8-bit Pixel Icons ─── */
+.pixel-icon {
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  vertical-align: -0.15em;
+  shape-rendering: crispEdges;
+}
+
+.app-logo-icon .pixel-icon {
+  width: 24px;
+  height: 24px;
+  vertical-align: middle;
+}
+
+.layers-empty-icon .pixel-icon {
+  width: 48px;
+  height: 48px;
+  vertical-align: middle;
+  margin-bottom: 8px;
+}
+
+.icon .pixel-icon {
+  width: 1.25em;
+  height: 1.25em;
+  vertical-align: -0.2em;
+}
+
+.btn .pixel-icon {
+  margin-right: 6px;
+}
+
+.btn-icon .pixel-icon {
+  margin-right: 0;
+}
+
+.pixel-icon-container {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  vertical-align: middle;
+}
+
+/* ─── CCM Calibration UI ─── */
+.calibration-banner {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  background: rgba(26, 23, 20, 0.95);
+  border: 1px solid var(--accent-gold);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: var(--shadow-md);
+  z-index: 10;
+  backdrop-filter: blur(4px);
+  animation: slideDown 0.25s ease;
+}
+
+@keyframes slideDown {
+  from { transform: translateY(-10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.calibration-banner-title {
+  font-weight: 700;
+  color: var(--accent-gold);
+  font-size: 0.85rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.calibration-banner-desc {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+.calibration-banner-steps {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.calibration-step-dot {
+  flex: 1;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  transition: background var(--transition);
+}
+
+.calibration-step-dot.active {
+  background: var(--accent-gold);
+}
+
+.calibration-step-dot.completed {
+  background: var(--accent-green);
+}
+
+/* ─── Soil Moisture Estimator ─── */
+.moisture-estimator-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.moisture-box {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.moisture-box-title {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.moisture-swatch-container {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.moisture-swatch {
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.1);
+  box-shadow: var(--shadow-sm);
+}
+
+.moisture-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.moisture-code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.moisture-name {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+
+/* ─── Camera Capture Guide Modal ─── */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.modal-content {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  width: 90%;
+  max-width: 500px;
+  padding: 20px;
+  box-shadow: var(--shadow-lg);
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 8px;
+}
+
+.modal-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--accent-gold);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.modal-close-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-close-btn:hover {
+  color: var(--text-primary);
+}
+
+.modal-body {
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.modal-body ul {
+  padding-left: 18px;
+  margin: 8px 0;
+}
+
+.modal-body li {
+  margin-bottom: 6px;
+}
+
+.guide-step {
+  background: rgba(255,255,255,0.03);
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  border-left: 3px solid var(--accent-gold);
+}
+
+.guide-step-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+
+

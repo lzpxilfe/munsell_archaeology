@@ -9,6 +9,8 @@
 
   <!-- munsell.js 로컬 번들 (privet-kitty/munsell v1.1.6, js/vendor/README.md 참고) -->
   <script src="js/vendor/munsell.min.js"></script>
+  <script src="js/pixelIcons.js"></script>
+  <script src="js/ccmSolver.js"></script>
 
   <link rel="stylesheet" href="css/style.css">
 </head>
@@ -25,6 +27,7 @@
   </div>
 
   <div class="header-controls">
+    <button id="guide-btn" class="btn btn-sm btn-ghost" style="color:var(--accent-gold);border:1px solid rgba(196,154,78,0.3);margin-right:8px" title="현장 사진 촬영 및 보정 가이드">📸 촬영 가이드</button>
     <button id="eyedropper-btn" class="btn btn-ghost" style="display:none" title="화면 스포이드 (Chrome/Edge)">
       💉 화면 스포이드
     </button>
@@ -63,6 +66,23 @@
 
       <!-- Canvas wrapper (shown after image load) -->
       <div id="canvas-wrapper" class="canvas-container" style="display:none;flex:1;min-height:280px">
+        <!-- CCM Calibration Guide Banner -->
+        <div id="ccm-banner" class="calibration-banner" style="display:none">
+          <div class="calibration-banner-title">
+            <span>🎨 컬러체커 보정 (CCM Calibration)</span>
+            <button id="ccm-cancel" class="btn btn-sm btn-ghost" style="padding:2px 6px;font-size:0.7rem;color:var(--text-muted)">취소 ✕</button>
+          </div>
+          <div id="ccm-guide-text" class="calibration-banner-desc">사진 속 컬러 카드의 [흰색] 패치를 클릭하세요.</div>
+          <div class="calibration-banner-steps">
+            <div class="calibration-step-dot active" data-step="0"></div>
+            <div class="calibration-step-dot" data-step="1"></div>
+            <div class="calibration-step-dot" data-step="2"></div>
+            <div class="calibration-step-dot" data-step="3"></div>
+            <div class="calibration-step-dot" data-step="4"></div>
+            <div class="calibration-step-dot" data-step="5"></div>
+          </div>
+        </div>
+
         <canvas id="main-canvas"></canvas>
         <div class="canvas-status-bar" id="canvas-status">이미지를 클릭하여 색을 채취하세요</div>
         <!-- hover preview dot -->
@@ -73,6 +93,61 @@
           box-shadow:0 2px 8px rgba(0,0,0,0.5);
           pointer-events:none;
         "></div>
+
+        <!-- ─── Floating Science Guide Widget ─── -->
+        <div id="science-guide-widget" class="science-guide-widget collapsed">
+          <button id="widget-toggle-btn" class="widget-toggle-btn" title="정밀 보정 가이드 및 과학 설명 보기">
+            💡 <span>정밀 보정 가이드</span>
+          </button>
+          <div class="widget-content">
+            <div class="widget-header">
+              <h3>📚 정밀 토색 가이드</h3>
+              <button id="widget-minimize-btn" class="widget-min-btn">✕</button>
+            </div>
+            <div class="widget-tabs">
+              <button class="widget-tab-btn active" data-tab="guide-wb">🌡️ 조명</button>
+              <button class="widget-tab-btn" data-tab="guide-ccm">🎨 CCM</button>
+              <button class="widget-tab-btn" data-tab="guide-vig">📷 비네팅</button>
+              <button class="widget-tab-btn" data-tab="guide-de">⚖️ 오차</button>
+            </div>
+            <div class="widget-body">
+              <!-- Tab 1: White Balance -->
+              <div id="guide-wb" class="widget-tab-content active">
+                <h4>조명 보정 (화이트 밸런스)</h4>
+                <p>현장에서 사진을 촬영할 때 태양광이나 그늘, 실내조명 등으로 인해 사진의 색상이 쏠리게 됩니다. 이를 D65 표준 백색광으로 변환하기 위한 장치입니다.</p>
+                <ul>
+                  <li><strong>Kelvin 프리셋/슬라이더</strong>: 맑음(5500K)이나 그늘(9000K) 등의 대략적인 현장 조명 온도를 지정하여 색감을 중화시킵니다.</li>
+                  <li><strong>그레이카드 도구</strong>: 사진 내 18% Neutral Gray(회색 카드) 영역을 클릭하면, 센서가 감지한 흰색 화이트포인트를 추출하여 가장 정밀한 화이트 밸런스를 계산합니다.</li>
+                </ul>
+              </div>
+              <!-- Tab 2: CCM -->
+              <div id="guide-ccm" class="widget-tab-content">
+                <h4>컬러체커 보정 (CCM)</h4>
+                <p>단순한 화이트 밸런스는 세 채널(R, G, B)의 축 비율만 변경하지만, CCM(Color Correction Matrix)은 이미지 센서의 물리적인 색 혼입(Spectral Cross-talk)까지 3x3 회귀 행렬을 통해 수학적으로 교정합니다.</p>
+                <ul>
+                  <li><strong>6색 컬러 바</strong>: 흰색, 회색, 검정색, 빨간색, 초록색, 파란색 패치를 순서대로 클릭하여 이미지의 RGB를 표준 좌표로 사영합니다.</li>
+                  <li><strong>24색 맥베스</strong>: 네 모퉁이(좌상, 우상, 우하, 좌하)를 순서대로 찍으면 전체 24개 패치를 자동 샘플링하여 24차 다변수 선형 회귀로 초정밀 보정을 완료합니다.</li>
+                </ul>
+              </div>
+              <!-- Tab 3: Vignetting -->
+              <div id="guide-vig" class="widget-tab-content">
+                <h4>비네팅 보정 (Vignetting)</h4>
+                <p>스마트폰 카메라 렌즈는 가장자리로 갈수록 렌즈 곡률과 구경으로 인해 빛이 덜 들어와 주변부가 어두워지는 비네팅(Vignetting) 현상이 일어납니다.</p>
+                <p><strong>비네팅 보정 슬라이더</strong>를 조절하면 이미지 중심부로부터의 반경 거리에 따라 밝기를 보상하는 <em>Radial Gain Compensation</em>을 적용하여, 사진 가장자리에서 채취한 흙 색상도 중앙부와 동일한 밝기로 정확하게 판독되도록 돕습니다.</p>
+              </div>
+              <!-- Tab 4: Delta E -->
+              <div id="guide-de" class="widget-tab-content">
+                <h4>색 오차 규격 (Delta E)</h4>
+                <p>채취한 색과 가장 가까운 먼셀 칩 간의 색차 오차값을 CIE $\Delta E_{2000}$ 국제 공식으로 표현합니다.</p>
+                <ul>
+                  <li><strong>ΔE &lt; 1.0 (미세)</strong>: 인간의 육안으로는 구분할 수 없는 동등한 색상입니다. (우수)</li>
+                  <li><strong>ΔE &lt; 2.0 (보통)</strong>: 숙련된 고고학자도 나란히 두고 집중해서 봐야 인지할 수 있는 오차 범위입니다.</li>
+                  <li><strong>ΔE &gt; 3.0 (주의)</strong>: 조명 보정이 맞지 않거나, 토색첩에 완벽하게 일치하는 먼셀 칩이 존재하지 않는 경우입니다.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Image toolbar -->
@@ -197,6 +272,15 @@
         </div>
       </div>
 
+      <!-- ── Soil Moisture Estimator ── -->
+      <div id="moisture-estimator-section" style="margin-top:14px;display:none">
+        <div class="divider" style="margin:12px 0 8px"></div>
+        <div class="section-label">💧 수분 상태별 색상 추정 (Dry-Moist)</div>
+        <div id="moisture-estimator-body" class="moisture-estimator-grid">
+          <!-- Dynamically filled: predicted values and chips -->
+        </div>
+      </div>
+
       <!-- ── Lighting Controls ── -->
       <div class="divider"></div>
       <div class="section-label">🌡️ 조명 보정 (색온도)</div>
@@ -217,6 +301,12 @@
         <button class="preset-btn btn btn-sm" data-k="4000" title="LED 실내 (4000K)">🔆 LED</button>
         <button class="preset-btn btn btn-sm" data-k="3200" title="텅스텐 인공조명 (3200K)">💡 텅스텐</button>
         <button class="preset-btn btn btn-sm active" data-k="6504" title="보정 없음 — D65 기준">⚖️ 기준</button>
+        
+        <select id="ccm-target-type" class="btn btn-sm" style="background:var(--bg-panel);border:1px solid rgba(196,154,78,0.3);color:var(--text-secondary);font-size:0.7rem;padding:0 4px;border-radius:4px" title="보정용 컬러 카드 종류를 선택합니다">
+          <option value="6patch">🎨 6색 컬러 바</option>
+          <option value="macbeth">🏁 24색 맥베스</option>
+        </select>
+        <button id="ccm-calibrate-btn" class="btn btn-sm btn-ghost" style="color:var(--accent-gold);border:1px solid rgba(196,154,78,0.3)" title="사진 속 컬러 카드를 클릭하여 정밀 색보정 행렬(CCM)을 도출합니다">보정 시작</button>
       </div>
 
       <!-- Custom slider -->
@@ -224,6 +314,13 @@
         <span class="slider-label" style="font-size:0.7rem;color:var(--text-muted)">사용자 정의</span>
         <input id="kelvin-slider" type="range" min="2500" max="10000" step="100" value="6504" style="flex:1;accent-color:var(--accent-gold)">
         <span id="kelvin-label" class="slider-value text-mono">6504K</span>
+      </div>
+
+      <!-- Vignetting Correction slider -->
+      <div class="slider-row" style="margin-top:8px">
+        <span class="slider-label" style="font-size:0.7rem;color:var(--text-muted)">비네팅 보정</span>
+        <input id="vignette-slider" type="range" min="0" max="50" step="1" value="0" style="flex:1;accent-color:var(--accent-gold)">
+        <span id="vignette-label" class="slider-value text-mono">0%</span>
       </div>
 
       <!-- ── Layer add form ── -->
@@ -250,6 +347,12 @@
         <div class="form-row">
           <label>메모</label>
           <input id="layer-memo" class="form-input" type="text" placeholder="다짐 정도, 포함물 등">
+        </div>
+        <div class="form-row" style="margin-top:2px;margin-bottom:8px">
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:0.72rem;color:var(--text-secondary)">
+            <input id="layer-normalize-moisture" type="checkbox" style="accent-color:var(--accent-gold);margin:0">
+            <span>건조 측정 시 습윤 상태로 자동 정규화 기록</span>
+          </label>
         </div>
         <button id="add-layer-btn" class="btn btn-primary w-full" disabled>+ 층위에 추가</button>
       </div>
@@ -385,6 +488,37 @@
   const codeEl = document.getElementById('munsell-code');
   if (codeEl) observer.observe(codeEl, { childList: true, characterData: true, subtree: true });
 </script>
+
+  <!-- ─── Camera Capture Guide Modal ─── -->
+  <div id="guide-modal" class="modal-overlay" style="display:none">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span class="modal-title">📸 고고학 현장 촬영 및 보정 가이드</span>
+        <button id="close-guide-btn" class="modal-close-btn">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="guide-step">
+          <div class="guide-step-title">☀️ 1. 조명 및 촬영 조건</div>
+          <div>직사광선을 피하고 그늘(구름 낀 날 또는 인공 차광막 아래)에서 촬영하세요. 직사광선은 토양의 모래 입자에서 강한 정반사(글레어)를 발생시킵니다. 인공조명과 자연광이 섞이는 혼합 광원(Mixed Light)은 피해야 합니다.</div>
+        </div>
+        <div class="guide-step">
+          <div class="guide-step-title">🏁 2. 컬러 카드 배치</div>
+          <div>보정용 그레이카드나 컬러체커는 토양 단면과 <strong>동일한 평면</strong>에 배치하고, 렌즈와 평행하도록 정면에서 촬영하세요. 비스듬히 촬영하면 렌즈 비네팅이나 광량 불균형으로 인해 왜곡이 심해집니다.</div>
+        </div>
+        <div class="guide-step">
+          <div class="guide-step-title">📱 3. 스마트폰 설정</div>
+          <div>카메라의 <strong>Auto-HDR</strong> 기능을 비활성화하고, 노출과 초점을 수동으로 잠그세요(화면을 길게 터치). 모바일 카메라의 자동 보정이 픽셀 RGB 값을 무작위로 왜곡하는 것을 방지합니다. 가급적 RAW(DNG) 형식으로 촬영하는 것이 권장됩니다.</div>
+        </div>
+        <div class="guide-step">
+          <div class="guide-step-title">🎨 4. 컬러체커 보정 도구 활용</div>
+          <div>
+            - <strong>6색 컬러 바</strong>: 표준 흰색, 회색, 검정 및 RGB 3원색을 차례대로 6개 점을 클릭하면 CCM 보정 행렬을 도출합니다.<br>
+            - <strong>24색 맥베스</strong>: 24색 카드 좌상단(Dark Skin), 우상단(Bluish Green), 우하단(Black), 좌하단(Blue) 네 모퉁이를 순서대로 클릭하면 그리드가 자동 배치되어 정밀 보정을 마칩니다.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
 </body>
 </html>
